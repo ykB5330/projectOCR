@@ -1,4 +1,0 @@
-paddlepaddle==3.3.0
-paddleocr
-Pillow
-pyinstaller
