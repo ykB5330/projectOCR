@@ -1,21 +1,23 @@
 import numpy as np
 
 def weighted_rgb2gray(rgb_array):
-    """
-    纯手写加权灰度化，不使用任何内置灰度转换接口
-    formula: gray = 0.299R + 0.587G + 0.114B
-    参数：rgb_array 三维numpy数组 (H,W,3)
-    返回：单通道灰度二维数组 (H,W)
-    """
     h, w = rgb_array.shape[:2]
-    gray_arr = np.zeros((h, w), dtype=np.uint8)
+    gray_arr = np.zeros((h, w), dtype=np.float32)  # 先用浮点存储，不提前取整
 
-    # 双层循环逐像素手动计算
+    # 双层循环加权计算
     for y in range(h):
         for x in range(w):
             r = rgb_array[y, x, 0]
             g = rgb_array[y, x, 1]
             b = rgb_array[y, x, 2]
-            res = 0.299 * r + 0.587 * g + 0.114 * b
-            gray_arr[y, x] = int(res)
+            val = 0.299 * r + 0.587 * g + 0.114 * b
+            gray_arr[y, x] = val
+
+    # OCR优化1：对比度拉伸，拉开黑白差距
+    min_g = gray_arr.min()
+    max_g = gray_arr.max()
+    gray_arr = (gray_arr - min_g) / (max_g - min_g) * 255
+
+    # OCR优化2：转uint8，限制0~255防止溢出
+    gray_arr = gray_arr.astype(np.uint8)
     return gray_arr
