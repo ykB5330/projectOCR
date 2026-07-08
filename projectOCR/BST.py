@@ -13,7 +13,7 @@ class ImageBSTManager:
         self.root = None
         self.size = 0
 
-    def insert(self, key, value):
+    def insert(self, key, value):                         #插入操作
         if self.root is None:
             self.root = ImageNode(key, value)
         else:
@@ -34,7 +34,7 @@ class ImageBSTManager:
         else:
             node.value = value
 
-    def search(self, key):
+    def search(self, key):                                  #查找操作
         return self._search_recursive(self.root, key)
 
     def _search_recursive(self, node, key):
@@ -44,7 +44,7 @@ class ImageBSTManager:
             return self._search_recursive(node.left, key)
         return self._search_recursive(node.right, key)
 
-    def range_query(self, low_key, high_key):
+    def range_query(self, low_key, high_key):                #范围查询
         result = []
         self._range_recursive(self.root, low_key, high_key, result)
         return result
@@ -59,7 +59,7 @@ class ImageBSTManager:
         if high > node.key:
             self._range_recursive(node.right, low, high, result)
 
-    def delete(self, key):
+    def delete(self, key):                                    #删除操作
         self.root, deleted = self._delete_recursive(self.root, key)
         if deleted:
             self.size -= 1
@@ -89,7 +89,7 @@ class ImageBSTManager:
             node = node.left
         return node
 
-    def inorder_traversal(self):
+    def inorder_traversal(self):                                 #中序游历
         result = []
         self._inorder_recursive(self.root, result)
         return result
