@@ -1,2 +1,0 @@
-# projectOCR
-niumazhizuo
