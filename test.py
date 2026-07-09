@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
 
     # 2. 中值滤波
-    gray_list = gray_data.tolist()
+    gray_list = gray_down.tolist()
     med_list = manual_median_filter(gray_list, kernel_size=3)
     med_data = np.array(med_list, dtype=np.uint8)
     
