@@ -22,8 +22,8 @@ if __name__ == "__main__":
     pixel_out = gray_data[check_y, check_x]
     
     # 3. 下采样
-    img_np = np.array(img)
-    img_down = four.down_sample_2x(img_np)
+    gray_down = four.down_sample_2x(gray_data)
+
 
     # 2. 中值滤波
     gray_list = gray_data.tolist()
@@ -44,6 +44,5 @@ if __name__ == "__main__":
     # 只保存最终结果
     bin_img.save(OUTPUT_BIN)
     print(result_np)
-
     # 只显示最终结果
     bin_img.show()
