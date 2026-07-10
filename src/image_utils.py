@@ -12,7 +12,7 @@ from algorithms.gamma import gamma_correction
 
 INPUT_PATH = "test.jpg"
 OUTPUT_FINAL = "out_final.jpg"
-def process(inage_path: str):
+def preprocess(inage_path: str):
   check_y, check_x = 60, 60
 
   if __name__ == "__main__":
