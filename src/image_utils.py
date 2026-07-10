@@ -1,15 +1,15 @@
 from typing import final
 from PIL import Image
 import numpy as np
+from skimage import exposure
 from algorithms.grayscale import weighted_rgb2gray
 from algorithms.binarize import manual_adaptive_binarize
 from algorithms.filter import manual_median_filter
 from algorithms.deskew import hough_transform, get_skew_angle, rotate_image
 import algorithms.resize as pyramid
 from algorithms.USM import usm_sharpen
-from algorithms.contrast_stretch import contrast_stretch
 from algorithms.gamma import gamma_correction
-
+from algorithms.clahe import clahe_enhance
 
 def preprocess(inage_path: str):
 
@@ -50,8 +50,11 @@ def preprocess(inage_path: str):
       #6. 伽马校正
       gamma_corrected_data=gamma_correction(usm_data, gamma=1.2)
 
-      #7. 对比度拉伸
-      final_pil=Image.fromarray(contrast_stretch(gamma_corrected_data,low_percent=2,high_percent=98))
+      #7. CLAHE增强
+      clahe_norm=gamma_corrected_data.astype(float)/255.0
+      enhanced=exposure.equalize_adapthist(clahe_norm, clip_limit=0.03, nbins=256)
+      clahe_data=(enhanced*255).astype(np.uint8)
+      final_pil=Image.fromarray(clahe_data)
 
       #输出最终结果
       return final_pil
