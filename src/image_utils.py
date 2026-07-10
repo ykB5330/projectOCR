@@ -57,6 +57,8 @@ def preprocess(inage_path: str):
       final_pil=Image.fromarray(clahe_data)
 
       #输出最终结果
-      return final_pil
+      rgb_img=final_pil.convert('RGB')
+      rgb_numpy_array=np.array(rgb_img)
+      return rgb_numpy_array
   
 
