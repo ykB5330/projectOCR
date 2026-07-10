@@ -60,6 +60,3 @@ def preprocess(inage_path: str):
       return final_pil
   
 
-
-preprocessed_img=preprocess(r"C:\Users\AW\Desktop\general_ocr_002.png")
-preprocessed_img.save(r"C:\Users\AW\Desktop\general_ocr_002_preprocessed.png")
