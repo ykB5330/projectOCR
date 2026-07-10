@@ -1,56 +1,58 @@
 import numpy as np
-import PIL.Image as Image
+from PIL import Image
 
-def hough_transform(image):
-    """
-    向量化 Hough 变换，显著提升速度。
-    """
-    height, width = image.shape
-    diag_len = int(np.ceil(np.sqrt(height**2 + width**2)))
-    # 使用 2*diag_len+1 个 rho 值，确保索引不越界
-    rhos = np.linspace(-diag_len, diag_len, 2 * diag_len + 1)
-    thetas = np.deg2rad(np.arange(-90, 90, 1.0))
-    accumulator = np.zeros((len(rhos), len(thetas)), dtype=np.int64)
+def hough_transform(binary_image):
+    h, w = binary_image.shape
+    diag_len = int(np.ceil(np.sqrt(h**2 + w**2)))
+    thetas = np.deg2rad(np.arange(0, 180))
+    num_thetas = len(thetas)
+    rhos = np.arange(-diag_len, diag_len + 1)
+    num_rhos = len(rhos)
+    accumulator = np.zeros((num_rhos, num_thetas), dtype=np.int64)
 
-    y_idxs, x_idxs = np.nonzero(image)
+    y_idxs, x_idxs = np.nonzero(binary_image)
     if len(x_idxs) == 0:
         return accumulator, thetas, rhos
 
-    # 预计算所有角度的 cos 和 sin
     cos_vals = np.cos(thetas)
     sin_vals = np.sin(thetas)
-
-    # 对每个角度，一次性计算所有边缘点的 rho 值，并用 bincount 统计
-    for t_idx in range(len(thetas)):
-        rho_vals = np.round(x_idxs * cos_vals[t_idx] + y_idxs * sin_vals[t_idx]).astype(np.int32) + diag_len
-        # 限制在有效索引范围内（防止因舍入误差导致越界）
-        rho_vals = np.clip(rho_vals, 0, len(rhos) - 1)
-        counts = np.bincount(rho_vals, minlength=len(rhos))
+    for t_idx in range(num_thetas):
+        rho_vals = (x_idxs * cos_vals[t_idx] + y_idxs * sin_vals[t_idx])
+        rho_int = np.round(rho_vals).astype(np.int32) + diag_len
+        rho_int = np.clip(rho_int, 0, num_rhos - 1)
+        counts = np.bincount(rho_int, minlength=num_rhos)
         accumulator[:, t_idx] = counts
 
     return accumulator, thetas, rhos
 
 
 def get_skew_angle(accumulator, thetas, rhos, diag_len):
-    """
-    修正角度计算：将检测到的直线法线角转换为实际倾斜角，
-    并返回可供 PIL.Image.rotate() 直接使用的旋转角度。
-    """
-    max_idx = np.unravel_index(np.argmax(accumulator), accumulator.shape)
-    rho_idx, theta_idx = max_idx
-    angle_rad = thetas[theta_idx]
+    if np.max(accumulator) == 0:
+        return 0.0
 
-    # 直线方向角（与 x 轴夹角） = theta + 90°
-    line_angle = np.degrees(angle_rad) + 90.0
-    # 归一化到 [-90, 90]
-    line_angle = line_angle % 180.0
-    if line_angle > 90.0:
-        line_angle -= 180.0
-
-    # 返回需要的旋转角度（逆时针为正），校正倾斜
-    angle_deg = -line_angle
-    return angle_deg
+    col_max = np.max(accumulator, axis=0) 
+    theta_deg = np.rad2deg(thetas) 
 
 
-def rotate_image(img_pil, angle):
-    return img_pil.rotate(angle, expand=True, fillcolor=255)
+    sigma = 15.0
+    weights = np.exp(-((theta_deg - 90) ** 2) / (2 * sigma ** 2))
+    weighted_votes = col_max * weights
+
+
+    best_idx = np.argmax(weighted_votes)
+    best_theta = theta_deg[best_idx]
+    best_vote = col_max[best_idx]
+
+    if abs(best_theta - 90) > 30:
+        if best_vote < 0.6 * np.max(col_max):
+            return 0.0
+
+    rotation_angle = 90.0 - best_theta
+    if abs(rotation_angle) > 45.0:
+        return 0.0
+
+    return rotation_angle
+
+
+def rotate_image(image_pil, angle):
+    return image_pil.rotate(angle, expand=True, resample=Image.BICUBIC)
