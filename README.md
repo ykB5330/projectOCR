@@ -38,7 +38,7 @@
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/ykB5330/projectOCR.git
-cd ocr-tool
+cd projectOCR
 
 # 2. 安装依赖
 pip install -r requirements.txt
