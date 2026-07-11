@@ -37,7 +37,7 @@
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/yourname/ocr-tool.git
+git clone https://github.com/ykB5330/projectOCR.git
 cd ocr-tool
 
 # 2. 安装依赖
