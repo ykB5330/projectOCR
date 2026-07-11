@@ -59,7 +59,7 @@ python src/main.py
 ## 项目结构
 
 ```
-ocr-tool/
+projectOCR/
 ├── src/
 │   ├── main.py                  # 入口
 │   ├── ui.py                    # GUI 界面（Tkinter + CustomTkinter）
