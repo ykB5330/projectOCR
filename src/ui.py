@@ -64,7 +64,7 @@ class OcrUI:
 
     def _setup_ui(self):
         """搭建全部UI组件"""
-        _assets = os.path.join(os.path.dirname(__file__), 'assets')
+        self._assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
 
         # ----- 窗口基础设置 -----
         self.root.configure(bg="#F7FEFE")
@@ -279,7 +279,7 @@ class OcrUI:
 
         # ----- 图标 & 关闭协议 -----
         try:
-            self.root.iconbitmap(os.path.join(_assets, 'favicon.ico'))
+            self.root.iconbitmap(os.path.join(self._assets_dir, 'favicon.ico'))
         except Exception:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self._close)
@@ -298,7 +298,7 @@ class OcrUI:
 
     def _creat_area(self):
         """创建拖拽提示区域"""
-        icon = Image.open(os.path.join(_assets, 'drop_hint.png')).resize(
+        icon = Image.open(os.path.join(self._assets_dir, 'drop_hint.png')).resize(
             (80, 80), Image.Resampling.LANCZOS).convert("RGBA")
         bg = Image.new("RGBA", icon.size, (193, 235, 235, 255))
         self.icon_img_tk = ImageTk.PhotoImage(Image.alpha_composite(bg, icon))
