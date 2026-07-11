@@ -1,0 +1,18 @@
+# OCR文字识别工具 — 依赖清单
+# 安装方式: pip install -r requirements.txt
+
+# === OCR引擎 ===
+paddleocr>=2.7.0
+paddlepaddle>=2.6.0      # PaddleOCR的深度学习后端（CPU版本）
+
+# === 图像处理 ===
+Pillow>=9.0.0             # PIL图像I/O与基础操作
+numpy>=1.21.0             # 多维数组运算
+scikit-image>=0.19.0      # CLAHE直方图均衡化
+
+# === GUI界面 ===
+customtkinter>=5.2.0      # 现代风格Tkinter主题控件
+tkinterdnd2>=0.3.0        # Tkinter拖拽文件支持
+
+# === 测试 ===
+pytest>=7.0.0             # 单元测试框架
