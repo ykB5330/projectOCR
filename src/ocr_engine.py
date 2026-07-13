@@ -118,26 +118,46 @@ class OcrEngine:
                 print(f"[OCR引擎] 任务 {task.task_id} 识别完成: {full_text[:50]}...")
                 task.callback(task.task_id, full_text, True)
             except RuntimeError as e:
-                # PaddlePaddle C++ RuntimeError: 降级跳过预处理，用原图重试
-                print(f"[OCR引擎] 任务 {task.task_id} RuntimeError，跳过预处理重试...")
-                try:
-                    if isinstance(task.img_input, str):
-                        raw_img = np.array(Image.open(task.img_input).convert('RGB'))
-                    else:
-                        raw_img = np.array(task.img_input.convert('RGB'))
-                    result = self.ocr.predict(raw_img)
-                    text_parts = []
-                    for res in result:
-                        text_parts.extend(res.json['res']['rec_texts'])
-                    full_text = ' '.join(text_parts)
-                    task.callback(task.task_id, full_text, True)
-                except Exception as e2:
-                    task.callback(task.task_id, f"识别错误(RuntimeError): {str(e)}", False)
+                # PaddlePaddle C++ RuntimeError
+                # 如果启用了预处理，可能是预处理导致的 → 重试原图
+                # 如果没启用预处理，重试无意义 → 直接报错
+                steps_empty = (task.enabled_steps is not None and len(task.enabled_steps) == 0)
+                if steps_empty:
+                    print(f"[OCR引擎] 任务 {task.task_id} RuntimeError（未启用预处理，无法降级）")
+                    msg = (f"PaddleOCR推理引擎错误。\n"
+                           f"建议：勾选任意预处理步骤后重试（改变图片格式可能绕过此问题）")
+                    task.callback(task.task_id, msg, False)
+                else:
+                    print(f"[OCR引擎] 任务 {task.task_id} RuntimeError，跳过预处理重试原图...")
+                    try:
+                        if isinstance(task.img_input, str):
+                            raw_img = np.array(Image.open(task.img_input).convert('RGB'))
+                        else:
+                            raw_img = np.array(task.img_input.convert('RGB'))
+                        result = self.ocr.predict(raw_img)
+                        text_parts = []
+                        for res in result:
+                            text_parts.extend(res.json['res']['rec_texts'])
+                        full_text = ' '.join(text_parts)
+                        task.callback(task.task_id, full_text, True)
+                    except Exception as e2:
+                        task.callback(task.task_id, f"识别错误(RuntimeError): {str(e)}", False)
             except Exception as e:
                 import traceback
                 print(f"[OCR引擎] 任务 {task.task_id} 失败: {e}")
                 traceback.print_exc()
                 task.callback(task.task_id, f"识别错误: {str(e)}", False)
+
+    def visualize(self, img_input, output_prefix):
+        """生成 OCR 可视化对比图（在原图上标注检测框和识别文本）"""
+        if isinstance(img_input, str):
+            result = self.ocr.predict(img_input)
+        else:
+            result = self.ocr.predict(np.array(img_input))
+        paths = []
+        for res in result:
+            paths.append(res.save_to_img(output_prefix))
+        return paths
 
     def shutdown(self):
         """关闭引擎，停止工作线程"""

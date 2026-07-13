@@ -45,6 +45,10 @@ class OcrUI:
         # None=全部启用, set()=全不启用, {'grayscale','deskew'}=部分启用
         self.enabled_steps = None
 
+        # ===== 队列状态 =====
+        self._queue_drained = True   # 当前无待识别图片
+        self._last_results = {}      # {image_path: ocr_text} 导出用
+
         # ===== 历史记录 =====
         self.history_manager = HistoryManager()
         self._history_id_map = {}           # listbox索引 → ocr_text
@@ -108,9 +112,15 @@ class OcrUI:
 
         self.listbox = tk.Listbox(
             self.left_frame, bg="#F7FEFE", fg="black", font=("微软雅黑", 12),
-            width=20
+            width=28
         )
         self.listbox.grid(row=0, column=0, sticky="nsew")
+        # 水平滚动条
+        self.listbox_hscroll = tk.Scrollbar(
+            self.left_frame, orient="horizontal", command=self.listbox.xview
+        )
+        self.listbox_hscroll.grid(row=1, column=0, sticky="ew")
+        self.listbox.config(xscrollcommand=self.listbox_hscroll.set)
         self.listbox.bind('<<ListboxSelect>>', self._on_select_listbox)
         # 右键菜单
         self.listbox.bind('<Button-3>', self._on_listbox_right_click)
@@ -124,6 +134,7 @@ class OcrUI:
         self.frame_in.columnconfigure(0, weight=1)
         self.frame_in.rowconfigure(0, weight=0)   # 清除按钮
         self.frame_in.rowconfigure(1, weight=1)   # Canvas
+
 
         self.clear_bt = ctk.CTkButton(
             self.frame_in, text="清除", width=60, height=30,
@@ -151,8 +162,9 @@ class OcrUI:
         )
         self.copy_btn.grid(row=0, column=0, sticky="ne", padx=5, pady=5)
 
-        self.canvas_out = ctk.CTkCanvas(
-            self.frame_out, bg="#F7FEFE", highlightthickness=0
+        self.canvas_out = ctk.CTkTextbox(
+            self.frame_out, fg_color="#F7FEFE", text_color="black",
+            font=("微软雅黑", 14), wrap="word"
         )
         self.canvas_out.grid(row=1, column=0, sticky="nsew")
 
@@ -195,12 +207,19 @@ class OcrUI:
         )
         self.reset_region_btn.grid(row=3, column=2, sticky="w", padx=(10, 0), pady=(0, 10))
 
-        self.export_btn = ctk.CTkButton(
-            self.root, text="导出结果", command=self._export_result,
-            width=120, font=("微软雅黑", 14),
+        self.export_txt_btn = ctk.CTkButton(
+            self.root, text="导出 TXT", command=self._export_txt,
+            width=90, font=("微软雅黑", 14),
             text_color="black", fg_color="#81C784"
         )
-        self.export_btn.grid(row=3, column=3, sticky="w", padx=(10, 0), pady=(0, 10))
+        self.export_txt_btn.grid(row=3, column=3, sticky="w", padx=(10, 0), pady=(0, 10))
+
+        self.export_jpg_btn = ctk.CTkButton(
+            self.root, text="导出对比图", command=self._export_jpg,
+            width=110, font=("微软雅黑", 14),
+            text_color="black", fg_color="#81C784"
+        )
+        self.export_jpg_btn.grid(row=3, column=3, sticky="e", padx=(0, 10), pady=(0, 10))
 
         # ----- 第4行：预处理选项面板 -----
         self._create_preprocess_panel()
@@ -360,17 +379,28 @@ class OcrUI:
     def _drop(self, event):
         """拖放文件处理"""
         files = self.root.tk.splitlist(event.data)
-        for f in files:
-            self._load_image_file(f)
+        if files:
+            self.file_list.clear()
+            self.listbox.delete(0, tk.END)
+            self._last_results.clear()
+            self._queue_drained = False
+            for f in files:
+                self._load_image_file(f)
 
     def _Import_file(self):
-        """点击导入图片按钮"""
-        file_path = filedialog.askopenfilename(
-            title="选择图片文件",
+        """点击导入图片按钮（支持多选）"""
+        paths = filedialog.askopenfilenames(
+            title="选择图片文件（可多选）",
             filetypes=[("图片文件", "*.jpg *.jpeg *.png *.bmp *.gif")]
         )
-        if file_path:
-            self._load_image_file(file_path)
+        if paths:
+            # 新导入 = 新队列
+            self.file_list.clear()
+            self.listbox.delete(0, tk.END)
+            self._last_results.clear()
+            self._queue_drained = False
+            for p in paths:
+                self._load_image_file(p)
 
     def _load_image_file(self, file_path: str):
         """加载并显示图片文件"""
@@ -401,6 +431,9 @@ class OcrUI:
 
         # 隐藏提示
         self._hide_hints()
+
+        # 新图片加入 → 队列未排空
+        self._queue_drained = False
 
     def _display_on_canvas(self, file_path_or_image):
         """在canvas_in上显示图片（缩放适配）"""
@@ -498,22 +531,22 @@ class OcrUI:
         self.listbox.delete(0, tk.END)
         self._status("文件列表已清空")
 
-    # ==================================================================
-    # 清除 / 重置
-    # ==================================================================
-
     def _clear_canvas(self):
-        """清除输入画布"""
+        """清除输入画布、输出文字、文件列表（保留历史记录）"""
         self.canvas_in.delete("all")
         self._show_hints()
         self.canvas_in.configure(bg="#C1EBEB")
         self._drag_leave(None)
         self.label.configure(text="未选择图片文件")
-
-        # ★ 修复：重置区域状态
         self._reset_region_state()
         self.original_image_path = None
         self.original_pil_image = None
+        self.canvas_out.delete("0.0", "end")
+        self.file_list.clear()
+        self.listbox.delete(0, tk.END)
+        self._queue_drained = True
+        self._last_results.clear()
+        self._status("已清除，可导入新图片开始识别")
 
     def _reset_region_state(self):
         """重置区域选择状态（不重绘Canvas）"""
@@ -617,6 +650,9 @@ class OcrUI:
 
     def _start_recognize(self):
         """开始识别 — 每张图片完成即追加显示结果"""
+        if self._queue_drained:
+            messagebox.showinfo("提示", "没有待识别图片。\n请导入新图片，或点击「清除」后重试。")
+            return
         if not self.file_list and not self.original_pil_image:
             messagebox.showwarning("提示", "请先导入图片")
             return
@@ -631,7 +667,7 @@ class OcrUI:
         self.recognize_bt.configure(state="disabled")
         steps_desc = f"已选{len(steps)}项" if steps is not None else "全部"
         self._status(f"⏳ 识别中（预处理: {steps_desc}），请稍候...")
-        self.canvas_out.delete("all")
+        self.canvas_out.delete("0.0", "end")
 
         # 追踪批量识别进度
         self._pending_tasks = 0
@@ -666,6 +702,11 @@ class OcrUI:
                 enabled_steps=steps
             )
 
+        # 提交完毕 → 标记队列已排空，不清列表（保留浏览）
+        self._queue_drained = True
+        self.original_pil_image = None
+        self.original_image_path = None
+
     def _on_single_result(self, task_id, text, success, image_path=""):
         """单张识别完成回调 — 立即追加到输出画布"""
         self._completed_tasks += 1
@@ -674,9 +715,9 @@ class OcrUI:
             if not success:
                 return
 
-            # 第一张结果：清空"识别中"提示
+            # 第一张结果：清空之前内容
             if self._completed_tasks == 1:
-                self.canvas_out.delete("all")
+                self.canvas_out.delete("0.0", "end")
 
             # 追加文件标签和识别文本
             self._append_ocr_result(task_id, text, image_path)
@@ -689,74 +730,45 @@ class OcrUI:
                 file_size=file_size,
                 region=self.current_region,
             )
+            # 记录映射：导出时按图片分别保存
+            self._last_results[image_path] = text
             # 每次追加记录后自动保存到 history/ 目录
             self._save_history()
 
-            # 全部完成
+            # 进度反馈
             if self._completed_tasks >= self._pending_tasks:
                 self.recognize_bt.configure(state="normal")
                 self._status(f"✅ 识别完成 — 共 {self._completed_tasks} 张")
+            else:
+                self._status(f"⏳ 识别中... {self._completed_tasks}/{self._pending_tasks}")
             self._refresh_history_listbox()
 
         self.root.after(0, update_ui)
 
     def _append_ocr_result(self, task_id, text, image_path=""):
-        """追加一条识别结果到输出画布底部（不覆盖已有内容）"""
-        cw = self.canvas_out.winfo_width()
-        if cw < 50:
-            cw = 500
-
-        # 获取当前画布底部位置
-        all_items = self.canvas_out.find_all()
-        if all_items:
-            bbox = self.canvas_out.bbox("all")
-            y_start = bbox[3] + 15 if bbox else 20
-        else:
-            y_start = 20
-
-        # 分隔线
-        self.canvas_out.create_line(10, y_start, cw - 10, y_start, fill="#CCCCCC")
-        y_start += 10
-
-        # 图片标签
+        """追加一条识别结果到输出框底部（不覆盖已有内容）"""
         fname = os.path.basename(image_path) if image_path else f"任务{task_id}"
-        self.canvas_out.create_text(
-            10, y_start, anchor="nw", text=f"📄 {fname}",
-            fill="#666666", font=("微软雅黑", 12, "bold"), tags="result"
-        )
-        y_start += 22
-
-        # 识别文本（自动换行）
-        text_id = self.canvas_out.create_text(
-            10, y_start, anchor="nw", text=text,
-            fill="black", font=("微软雅黑", 14), tags="result",
-            width=cw - 20
-        )
-
-        # 扩展滚动区域
-        text_bbox = self.canvas_out.bbox(text_id)
-        if text_bbox:
-            self.canvas_out.config(scrollregion=(0, 0, cw, text_bbox[3] + 20))
+        # 如果不是第一条，先加分隔
+        current = self.canvas_out.get("0.0", "end-1c")
+        if current.strip():
+            self.canvas_out.insert("end", "\n\n─── 📄 " + fname + " ───\n")
+        else:
+            self.canvas_out.insert("end", "📄 " + fname + "\n")
+        self.canvas_out.insert("end", text + "\n")
 
     def _display_ocr_result(self, text):
         """全量显示识别结果（用于历史记录回显，会清空已有内容）"""
-        self.canvas_out.delete("all")
-        cw = self.canvas_out.winfo_width()
-        if cw < 50:
-            cw = 500
-        self.canvas_out.create_text(
-            10, 10, anchor="nw", text=text,
-            fill="black", font=("微软雅黑", 14), tags="result",
-            width=cw - 20
-        )
+        self.canvas_out.delete("0.0", "end")
+        self.canvas_out.insert("end", text)
 
     def _copy_canvas_text(self):
-        """复制输出画布文字到剪贴板"""
-        texts = []
-        for item in self.canvas_out.find_all():
-            if self.canvas_out.type(item) == "text":
-                texts.append(self.canvas_out.itemcget(item, "text"))
-        content = "\n".join(texts)
+        """复制输出框文字到剪贴板"""
+        try:
+            # 优先复制用户选中部分
+            content = self.canvas_out.selection_get()
+        except tk.TclError:
+            # 没有选中则复制全部
+            content = self.canvas_out.get("0.0", "end-1c")
         if content.strip():
             self.root.clipboard_clear()
             self.root.clipboard_append(content)
@@ -764,23 +776,39 @@ class OcrUI:
         else:
             messagebox.showwarning("提示", "暂无文字可复制")
 
-    def _export_result(self):
-        """导出识别结果为txt文件"""
-        texts = []
-        for item in self.canvas_out.find_all():
-            if self.canvas_out.type(item) == "text":
-                texts.append(self.canvas_out.itemcget(item, "text"))
-        content = "\n".join(texts)
-        if not content.strip():
-            messagebox.showwarning("提示", "暂无文字可导出")
+    def _export_txt(self):
+        """导出 TXT：选目录 → 每图一个 .txt"""
+        if not self.file_list:
+            messagebox.showwarning("提示", "没有可导出的图片")
             return
-        filepath = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")]
-        )
-        if filepath:
-            ResultParser.export_to_file(content, filepath)
-            self._status(f"✅ 已导出到: {os.path.basename(filepath)}")
+        out_dir = filedialog.askdirectory(title="选择导出目录")
+        if not out_dir:
+            return
+        count = 0
+        for path in self.file_list:
+            text = self._last_results.get(path, "")
+            fname = os.path.splitext(os.path.basename(path))[0] + ".txt"
+            ResultParser.export_to_file(text, os.path.join(out_dir, fname))
+            count += 1
+        self._status(f"✅ 已导出 {count} 个 TXT 到 {out_dir}/")
+
+    def _export_jpg(self):
+        """导出对比图：选目录 → 每图一张 OCR 可视化"""
+        if not self.file_list:
+            messagebox.showwarning("提示", "没有可导出的图片")
+            return
+        out_dir = filedialog.askdirectory(title="选择导出目录")
+        if not out_dir:
+            return
+        count = 0
+        for path in self.file_list:
+            prefix = os.path.join(out_dir, os.path.splitext(os.path.basename(path))[0])
+            try:
+                self.engine.visualize(path, prefix)
+                count += 1
+            except Exception as e:
+                print(f"可视化失败 {path}: {e}")
+        self._status(f"✅ 已导出 {count} 张对比图到 {out_dir}/")
 
     # ==================================================================
     # 历史记录
@@ -814,19 +842,25 @@ class OcrUI:
                 display += " 📐"
             idx = self.history_listbox.size()
             self.history_listbox.insert(tk.END, display)
-            self._history_id_map[idx] = r.ocr_text  # 直接存储文本，点击时立即回显
+            self._history_id_map[idx] = r  # 存储完整记录（含图片路径）
 
     def _on_select_history(self, event):
-        """点击历史记录回显结果"""
+        """点击历史记录回显结果 + 加载对应图片"""
         sel = self.history_listbox.curselection()
         if not sel:
             return
         idx = sel[0]
-        ocr_text = self._history_id_map.get(idx)
-        if not ocr_text:
+        record = self._history_id_map.get(idx)
+        if not record:
             return
-        self._display_ocr_result(ocr_text)
-        self._status(f"📋 已回显历史记录")
+        self._display_ocr_result(record.ocr_text)
+        # 图片路径存在则加载到输入画布
+        if record.image_path and os.path.exists(record.image_path):
+            self._display_on_canvas(record.image_path)
+            self._hide_hints()
+            self._status(f"📋 已回显历史记录 [{record.record_id}]")
+        else:
+            self._status(f"📋 已回显文字（图片已不可用）")
 
     def _on_history_search(self, *args):
         """搜索框文本变化实时过滤"""
