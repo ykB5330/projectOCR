@@ -381,9 +381,11 @@ class OcrUI:
         """拖放文件处理"""
         files = self.root.tk.splitlist(event.data)
         if files:
-            self.file_list.clear()
-            self.listbox.delete(0, tk.END)
-            self._last_results.clear()
+            # 上一批已识别完 → 清空旧列表开始新批次；否则追加
+            if self._queue_drained:
+                self.file_list.clear()
+                self.listbox.delete(0, tk.END)
+                self._last_results.clear()
             self._queue_drained = False
             for f in files:
                 self._load_image_file(f)
