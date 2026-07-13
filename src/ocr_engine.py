@@ -20,21 +20,29 @@ class OcrEngine:
     """OCR识别引擎，基于队列的任务调度与异步识别"""
 
     def __init__(self):
-        # 延迟导入PaddleOCR（避免未安装时程序完全无法启动）
-        from paddleocr import PaddleOCR
-        print("[OCR引擎] 正在初始化PaddleOCR模型（首次运行需下载模型，请耐心等待）...")
-        self.ocr = PaddleOCR(
-            use_doc_orientation_classify=True,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            engine="paddle",
-        )
-        print("[OCR引擎] 模型加载完成 ✓")
+        self._ocr = None           # 延迟到 worker 线程内首次创建
+        self._ocr_lock = threading.Lock()
 
         self.task_queue = Queue()
         self.is_running = True
         self.worker_thread = threading.Thread(target=self.worker_loop, daemon=True)
         self.worker_thread.start()
+
+    def _get_ocr(self):
+        """获取 PaddleOCR 实例（在调用线程内延迟创建，避免跨线程 oneDNN 崩溃）"""
+        if self._ocr is None:
+            with self._ocr_lock:
+                if self._ocr is None:
+                    from paddleocr import PaddleOCR
+                    print("[OCR引擎] 正在初始化PaddleOCR模型...")
+                    self._ocr = PaddleOCR(
+                        use_doc_orientation_classify=True,
+                        use_doc_unwarping=False,
+                        use_textline_orientation=False,
+                        engine="paddle",
+                    )
+                    print("[OCR引擎] 模型加载完成 ✓")
+        return self._ocr
 
     def submit(self, img_input, callback: Callable, enabled_steps=None) -> str:
         """
@@ -122,7 +130,7 @@ class OcrEngine:
                 else:
                     ocr_input = preprocess(task.img_input, task.enabled_steps)
                     print(f"[OCR引擎] 任务 {task.task_id} 预处理完成 (尺寸: {ocr_input.shape[:2]})，开始OCR...")
-                result = self.ocr.predict(ocr_input)
+                result = self._get_ocr().predict(ocr_input)
 
                 # 正确提取rec_texts
                 text_parts = []
@@ -153,7 +161,7 @@ class OcrEngine:
                             raw_img = np.array(Image.open(task.img_input).convert('RGB'))
                         else:
                             raw_img = np.array(task.img_input.convert('RGB'))
-                        result = self.ocr.predict(raw_img)
+                        result = self._get_ocr().predict(raw_img)
                         text_parts = []
                         for res in result:
                             text_parts.extend(res.json['res']['rec_texts'])
@@ -176,9 +184,9 @@ class OcrEngine:
     def visualize(self, img_input, output_prefix):
         """生成 OCR 可视化对比图（在原图上标注检测框和识别文本）"""
         if isinstance(img_input, str):
-            result = self.ocr.predict(img_input)
+            result = self._get_ocr().predict(img_input)
         else:
-            result = self.ocr.predict(np.array(img_input))
+            result = self._get_ocr().predict(np.array(img_input))
         paths = []
         for res in result:
             paths.append(res.save_to_img(output_prefix))
