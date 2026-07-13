@@ -1,3 +1,4 @@
+import os
 import uuid
 from queue import Queue, Empty
 import threading
@@ -104,10 +105,24 @@ class OcrEngine:
 
             print(f"[OCR引擎] 开始处理任务 {task.task_id}")
             try:
-                # 预处理（支持文件路径或PIL Image，传递用户选择的步骤）
-                preprocessed_img = preprocess(task.img_input, task.enabled_steps)
-                print(f"[OCR引擎] 任务 {task.task_id} 预处理完成 (尺寸: {preprocessed_img.shape[:2]})，开始OCR...")
-                result = self.ocr.predict(preprocessed_img)
+                # 空步骤 → 跳过预处理，传文件路径给 PaddleOCR（避免 numpy→oneDNN 崩溃）
+                steps_empty = (task.enabled_steps is not None and len(task.enabled_steps) == 0)
+                _tmp_file = None
+                if steps_empty:
+                    if isinstance(task.img_input, str):
+                        ocr_input = task.img_input
+                    else:
+                        import tempfile
+                        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                        task.img_input.save(tmp.name)
+                        tmp.close()
+                        ocr_input = tmp.name
+                        _tmp_file = tmp.name
+                    print(f"[OCR引擎] 任务 {task.task_id} 跳过预处理，直接传路径...")
+                else:
+                    ocr_input = preprocess(task.img_input, task.enabled_steps)
+                    print(f"[OCR引擎] 任务 {task.task_id} 预处理完成 (尺寸: {ocr_input.shape[:2]})，开始OCR...")
+                result = self.ocr.predict(ocr_input)
 
                 # 正确提取rec_texts
                 text_parts = []
@@ -116,6 +131,8 @@ class OcrEngine:
                     text_parts.extend(rec_texts)
                 full_text = ' '.join(text_parts)
                 print(f"[OCR引擎] 任务 {task.task_id} 识别完成: {full_text[:50]}...")
+                if _tmp_file:
+                    os.unlink(_tmp_file)
                 task.callback(task.task_id, full_text, True)
             except RuntimeError as e:
                 # PaddlePaddle C++ RuntimeError
@@ -126,6 +143,8 @@ class OcrEngine:
                     print(f"[OCR引擎] 任务 {task.task_id} RuntimeError（未启用预处理，无法降级）")
                     msg = (f"PaddleOCR推理引擎错误。\n"
                            f"建议：勾选任意预处理步骤后重试（改变图片格式可能绕过此问题）")
+                    if _tmp_file:
+                        os.unlink(_tmp_file)
                     task.callback(task.task_id, msg, False)
                 else:
                     print(f"[OCR引擎] 任务 {task.task_id} RuntimeError，跳过预处理重试原图...")
@@ -139,13 +158,19 @@ class OcrEngine:
                         for res in result:
                             text_parts.extend(res.json['res']['rec_texts'])
                         full_text = ' '.join(text_parts)
+                        if _tmp_file:
+                            os.unlink(_tmp_file)
                         task.callback(task.task_id, full_text, True)
                     except Exception as e2:
+                        if _tmp_file:
+                            os.unlink(_tmp_file)
                         task.callback(task.task_id, f"识别错误(RuntimeError): {str(e)}", False)
             except Exception as e:
                 import traceback
                 print(f"[OCR引擎] 任务 {task.task_id} 失败: {e}")
                 traceback.print_exc()
+                if _tmp_file:
+                    os.unlink(_tmp_file)
                 task.callback(task.task_id, f"识别错误: {str(e)}", False)
 
     def visualize(self, img_input, output_prefix):
