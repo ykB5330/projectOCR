@@ -394,10 +394,11 @@ class OcrUI:
             filetypes=[("图片文件", "*.jpg *.jpeg *.png *.bmp *.gif")]
         )
         if paths:
-            # 新导入 = 新队列
-            self.file_list.clear()
-            self.listbox.delete(0, tk.END)
-            self._last_results.clear()
+            # 上一批已识别完 → 清空旧列表开始新批次；否则追加
+            if self._queue_drained:
+                self.file_list.clear()
+                self.listbox.delete(0, tk.END)
+                self._last_results.clear()
             self._queue_drained = False
             for p in paths:
                 self._load_image_file(p)
@@ -702,7 +703,7 @@ class OcrUI:
                 enabled_steps=steps
             )
 
-        # 提交完毕 → 标记队列已排空，不清列表（保留浏览）
+        # 提交完毕 → 标记队列已排空，保留列表供浏览
         self._queue_drained = True
         self.original_pil_image = None
         self.original_image_path = None
