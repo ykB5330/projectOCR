@@ -57,6 +57,7 @@ class OcrUI:
 
         # ===== 搭建界面 =====
         self._setup_ui()
+        self._refresh_history_listbox()     # 启动时展示已加载的历史记录
 
     def set_engine(self, engine):
         """注入OCR引擎（由main.py调用）"""
