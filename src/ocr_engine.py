@@ -116,6 +116,7 @@ class OcrEngine:
                 # 空步骤 → 跳过预处理，传文件路径给 PaddleOCR（避免 numpy→oneDNN 崩溃）
                 steps_empty = (task.enabled_steps is not None and len(task.enabled_steps) == 0)
                 _tmp_file = None
+                processed_pil = None
                 if steps_empty:
                     if isinstance(task.img_input, str):
                         ocr_input = task.img_input
@@ -129,6 +130,7 @@ class OcrEngine:
                     print(f"[OCR引擎] 任务 {task.task_id} 跳过预处理，直接传路径...")
                 else:
                     ocr_input = preprocess(task.img_input, task.enabled_steps)
+                    processed_pil = Image.fromarray(ocr_input)
                     print(f"[OCR引擎] 任务 {task.task_id} 预处理完成 (尺寸: {ocr_input.shape[:2]})，开始OCR...")
                 result = self._get_ocr().predict(ocr_input)
 
@@ -141,7 +143,7 @@ class OcrEngine:
                 print(f"[OCR引擎] 任务 {task.task_id} 识别完成: {full_text[:50]}...")
                 if _tmp_file:
                     os.unlink(_tmp_file)
-                task.callback(task.task_id, full_text, True)
+                task.callback(task.task_id, full_text, True, processed_pil)
             except RuntimeError as e:
                 # PaddlePaddle C++ RuntimeError
                 # 如果启用了预处理，可能是预处理导致的 → 重试原图
@@ -153,7 +155,7 @@ class OcrEngine:
                            f"建议：勾选任意预处理步骤后重试（改变图片格式可能绕过此问题）")
                     if _tmp_file:
                         os.unlink(_tmp_file)
-                    task.callback(task.task_id, msg, False)
+                    task.callback(task.task_id, msg, False, None)
                 else:
                     print(f"[OCR引擎] 任务 {task.task_id} RuntimeError，跳过预处理重试原图...")
                     try:
@@ -168,18 +170,18 @@ class OcrEngine:
                         full_text = ' '.join(text_parts)
                         if _tmp_file:
                             os.unlink(_tmp_file)
-                        task.callback(task.task_id, full_text, True)
+                        task.callback(task.task_id, full_text, True, None)
                     except Exception as e2:
                         if _tmp_file:
                             os.unlink(_tmp_file)
-                        task.callback(task.task_id, f"识别错误(RuntimeError): {str(e)}", False)
+                        task.callback(task.task_id, f"识别错误(RuntimeError): {str(e)}", False, None)
             except Exception as e:
                 import traceback
                 print(f"[OCR引擎] 任务 {task.task_id} 失败: {e}")
                 traceback.print_exc()
                 if _tmp_file:
                     os.unlink(_tmp_file)
-                task.callback(task.task_id, f"识别错误: {str(e)}", False)
+                task.callback(task.task_id, f"识别错误: {str(e)}", False, None)
 
     def visualize(self, img_input, output_prefix):
         """生成 OCR 可视化对比图（在原图上标注检测框和识别文本）"""

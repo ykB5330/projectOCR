@@ -38,6 +38,7 @@ class OcrUI:
         self.region_selector = None
         self.selection_active = False
         self.current_region = None          # (x1, y1, x2, y2) 图像坐标
+        self.showing_processed = False      # 是否正在查看预处理效果图
         self.original_image_path = None
         self.original_pil_image = None
 
@@ -48,6 +49,7 @@ class OcrUI:
         # ===== 队列状态 =====
         self._queue_drained = True   # 当前无待识别图片
         self._last_results = {}      # {image_path: ocr_text} 导出用
+        self._processed_images = {}  # {image_path: PIL.Image} 预处理效果图
 
         # ===== 历史记录 =====
         self.history_manager = HistoryManager()
@@ -71,211 +73,268 @@ class OcrUI:
         """搭建全部UI组件"""
         self._assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
 
-        # ----- 窗口基础设置 -----
-        self.root.configure(bg="#F7FEFE")
+        # ===== 配色方案 =====
+        BG = "#EEF2F6"
+        CARD = "#FFFFFF"
+        TEXT = "#1E293B"
+        SUBTEXT = "#64748B"
+        PRIMARY = "#3B82F6"
+        SUCCESS = "#22C55E"
+        WARNING = "#F97316"
+        CANVAS_BG = "#E2E8F0"
+
+        # ===== 窗口基础设置 =====
+        self.root.configure(bg=BG)
         self.root.resizable(True, True)
-        self._center_window(1200, 850)
+        self._center_window(1400, 900)
 
-        # ----- 网格布局配置 -----
-        # 列：0=文件列表 | 1=间隔 | 2=输入画布 | 3=输出画布 | 4=间隔
-        self.root.columnconfigure(0, weight=0)           # 文件列表（固定宽）
-        self.root.columnconfigure(1, weight=0, minsize=10)  # 间隔
-        self.root.columnconfigure(2, weight=1)           # 输入画布（可扩展）
-        self.root.columnconfigure(3, weight=1)           # 输出画布（可扩展）
-        self.root.columnconfigure(4, weight=0)           # 间隔
+        # ===== 网格布局：3列 × 4行 =====
+        self.root.columnconfigure(0, weight=0, minsize=280)  # 左侧面板
+        self.root.columnconfigure(1, weight=1)                # 输入画布
+        self.root.columnconfigure(2, weight=1)                # 输出区域
+        self.root.rowconfigure(0, weight=0)   # 标题
+        self.root.rowconfigure(1, weight=1)   # 主区域
+        self.root.rowconfigure(2, weight=0)   # 历史记录
+        self.root.rowconfigure(3, weight=0)   # 状态栏
 
-        # 行：固定顺序，只有canvas行可扩展
-        self.root.rowconfigure(0, weight=0)   # 标题行
-        self.root.rowconfigure(1, weight=1)   # Canvas行（★可扩展★）
-        self.root.rowconfigure(2, weight=0)   # 主要按钮行
-        self.root.rowconfigure(3, weight=0)   # 辅助按钮行
-        self.root.rowconfigure(4, weight=0)   # 预处理选项面板
-        self.root.rowconfigure(5, weight=0)   # 历史记录面板
-        self.root.rowconfigure(6, weight=0)   # 状态栏
+        # ================================================================
+        # Row 0: 标题栏
+        # ================================================================
+        title_frame = ctk.CTkFrame(self.root, fg_color=BG)
+        title_frame.grid(row=0, column=0, columnspan=3, sticky="ew",
+                         padx=15, pady=(15, 5))
 
-        # ----- 第0行：标题 -----
-        ctk.CTkLabel(
-            self.root, text="图片识别",
-            font=("微软雅黑", 20), text_color="black", fg_color="#F7FEFE"
-        ).grid(row=0, column=0, sticky="nw", padx=(10, 0), pady=(10, 0))
+        ctk.CTkLabel(title_frame, text="🔍 文字识别工具",
+                     font=("微软雅黑", 22, "bold"), text_color=TEXT
+                     ).pack(side="left")
+        ctk.CTkLabel(title_frame, text="v2.0",
+                     font=("微软雅黑", 11), text_color=SUBTEXT
+                     ).pack(side="left", padx=8)
 
-        self.label = ctk.CTkLabel(
-            self.root, text="未选择图片文件",
-            font=("微软雅黑", 15), text_color="black", fg_color="#F7FEFE"
+        self.label = ctk.CTkLabel(title_frame, text="未选择图片文件",
+                                  font=("微软雅黑", 13), text_color=SUBTEXT)
+        self.label.pack(side="right")
+
+        # ================================================================
+        # Row 1, Col 0: 左侧面板
+        # ================================================================
+        sidebar = ctk.CTkFrame(self.root, fg_color=BG)
+        sidebar.grid(row=1, column=0, sticky="nsew", padx=(15, 8), pady=(5, 0))
+        sidebar.columnconfigure(0, weight=1)
+        sidebar.rowconfigure(0, weight=0)  # 文件操作卡片
+        sidebar.rowconfigure(1, weight=1)  # 预处理卡片
+
+        # --- 文件操作卡片 ---
+        file_card = ctk.CTkFrame(sidebar, fg_color=CARD, corner_radius=10)
+        file_card.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        file_card.columnconfigure(0, weight=1)
+
+        file_header = ctk.CTkFrame(file_card, fg_color="transparent")
+        file_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+        ctk.CTkLabel(file_header, text="📁 文件列表",
+                     font=("微软雅黑", 14, "bold"), text_color=TEXT
+                     ).pack(side="left")
+        self.file_count_label = ctk.CTkLabel(file_header, text="(0)",
+                                              font=("微软雅黑", 12), text_color=SUBTEXT)
+        self.file_count_label.pack(side="left", padx=4)
+
+        # 按钮行
+        btn_row = ctk.CTkFrame(file_card, fg_color="transparent")
+        btn_row.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self.button = ctk.CTkButton(
+            btn_row, text="📥 导入图片", command=self._Import_file,
+            width=110, height=32, font=("微软雅黑", 12),
+            text_color="white", fg_color=PRIMARY, hover_color="#2563EB"
         )
-        self.label.grid(row=0, column=3, sticky="w")
+        self.button.pack(side="left", padx=(0, 6))
+        ctk.CTkButton(
+            btn_row, text="🗑 清空", command=self._clear_file_list,
+            width=70, height=32, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
+        ).pack(side="left")
 
-        # ----- 第1行：文件列表（左侧）-----
-        self.left_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.left_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 0), pady=(10, 0))
+        # 文件列表
+        self.left_frame = ctk.CTkFrame(file_card, fg_color="transparent")
+        self.left_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.left_frame.rowconfigure(0, weight=1)
         self.left_frame.columnconfigure(0, weight=1)
 
         self.listbox = tk.Listbox(
-            self.left_frame, bg="#F7FEFE", fg="black", font=("微软雅黑", 12),
-            width=28
+            self.left_frame, bg="#F8FAFC", fg=TEXT,
+            font=("微软雅黑", 11), width=28, height=8,
+            selectbackground=PRIMARY, selectforeground="white",
+            relief="flat", borderwidth=1, highlightthickness=0
         )
         self.listbox.grid(row=0, column=0, sticky="nsew")
-        # 水平滚动条
         self.listbox_hscroll = tk.Scrollbar(
             self.left_frame, orient="horizontal", command=self.listbox.xview
         )
         self.listbox_hscroll.grid(row=1, column=0, sticky="ew")
         self.listbox.config(xscrollcommand=self.listbox_hscroll.set)
         self.listbox.bind('<<ListboxSelect>>', self._on_select_listbox)
-        # 右键菜单
         self.listbox.bind('<Button-3>', self._on_listbox_right_click)
         self._listbox_menu = tk.Menu(self.root, tearoff=0)
         self._listbox_menu.add_command(label="删除选中", command=self._remove_selected_file)
         self._listbox_menu.add_command(label="清空列表", command=self._clear_file_list)
 
-        # ----- 第1行：输入画布（中间）-----
-        self.frame_in = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.frame_in.grid(row=1, column=2, sticky="nsew", padx=(10, 0), pady=(10, 0))
-        self.frame_in.columnconfigure(0, weight=1)
-        self.frame_in.rowconfigure(0, weight=0)   # 清除按钮
-        self.frame_in.rowconfigure(1, weight=1)   # Canvas
+        # --- 预处理卡片 ---
+        self._create_preprocess_panel(sidebar)
 
+        # ================================================================
+        # Row 1, Col 1: 输入画布
+        # ================================================================
+        self.frame_in = ctk.CTkFrame(self.root, fg_color=CARD, corner_radius=10)
+        self.frame_in.grid(row=1, column=1, sticky="nsew", padx=(4, 4), pady=(5, 0))
+        self.frame_in.columnconfigure(0, weight=1)
+        self.frame_in.rowconfigure(0, weight=0)
+        self.frame_in.rowconfigure(1, weight=1)
+
+        # 工具栏
+        in_toolbar = ctk.CTkFrame(self.frame_in, fg_color="transparent")
+        in_toolbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+
+        self.region_btn = ctk.CTkButton(
+            in_toolbar, text="✂ 框选区域", command=self._toggle_region_selection,
+            width=100, height=30, font=("微软雅黑", 12),
+            text_color="white", fg_color=WARNING, hover_color="#EA580C"
+        )
+        self.region_btn.pack(side="left", padx=(0, 5))
+
+        self.reset_region_btn = ctk.CTkButton(
+            in_toolbar, text="↺ 重置区域", command=self._reset_region,
+            width=100, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
+        )
+        self.reset_region_btn.pack(side="left", padx=5)
 
         self.clear_bt = ctk.CTkButton(
-            self.frame_in, text="清除", width=60, height=30,
-            font=("微软雅黑", 13), text_color="black", fg_color="#5EDEDE",
-            command=self._clear_canvas
+            in_toolbar, text="✕ 清除", command=self._clear_canvas,
+            width=80, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
         )
-        self.clear_bt.grid(row=0, column=0, sticky="ne", padx=5, pady=5)
+        self.clear_bt.pack(side="left", padx=5)
 
+        self.toggle_preprocess_btn = ctk.CTkButton(
+            in_toolbar, text="🔬 查看预处理", command=self._toggle_processed_view,
+            width=120, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#E2E8F0", hover_color="#CBD5E1",
+            state="disabled"
+        )
+        self.toggle_preprocess_btn.pack(side="right")
+
+        # 画布
         self.canvas_in = ctk.CTkCanvas(
-            self.frame_in, bg="#C1EBEB", highlightthickness=0
+            self.frame_in, bg=CANVAS_BG, highlightthickness=0
         )
-        self.canvas_in.grid(row=1, column=0, sticky="nsew")
+        self.canvas_in.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
-        # ----- 第1行：输出画布（右侧）-----
-        self.frame_out = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.frame_out.grid(row=1, column=3, sticky="nsew", padx=(10, 0), pady=(10, 0))
+        # ================================================================
+        # Row 1, Col 2: 输出区域
+        # ================================================================
+        self.frame_out = ctk.CTkFrame(self.root, fg_color=CARD, corner_radius=10)
+        self.frame_out.grid(row=1, column=2, sticky="nsew", padx=(4, 15), pady=(5, 0))
         self.frame_out.columnconfigure(0, weight=1)
-        self.frame_out.rowconfigure(0, weight=0)   # 复制按钮
-        self.frame_out.rowconfigure(1, weight=1)   # Canvas
+        self.frame_out.rowconfigure(0, weight=0)
+        self.frame_out.rowconfigure(1, weight=1)
+
+        # 工具栏
+        out_toolbar = ctk.CTkFrame(self.frame_out, fg_color="transparent")
+        out_toolbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+
+        self.recognize_bt = ctk.CTkButton(
+            out_toolbar, text="🚀 开始识别", command=self._start_recognize,
+            width=120, height=34, font=("微软雅黑", 13, "bold"),
+            text_color="white", fg_color=SUCCESS, hover_color="#16A34A"
+        )
+        self.recognize_bt.pack(side="left", padx=(0, 8))
 
         self.copy_btn = ctk.CTkButton(
-            self.frame_out, text="复制", width=60, height=30,
-            font=("微软雅黑", 13), text_color="black", fg_color="#5EDEDE",
-            command=self._copy_canvas_text
+            out_toolbar, text="📋 复制", command=self._copy_canvas_text,
+            width=80, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
         )
-        self.copy_btn.grid(row=0, column=0, sticky="ne", padx=5, pady=5)
+        self.copy_btn.pack(side="left", padx=4)
 
+        self.export_txt_btn = ctk.CTkButton(
+            out_toolbar, text="📄 导出TXT", command=self._export_txt,
+            width=90, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
+        )
+        self.export_txt_btn.pack(side="left", padx=4)
+
+        self.export_jpg_btn = ctk.CTkButton(
+            out_toolbar, text="🖼 导出对比图", command=self._export_jpg,
+            width=110, height=30, font=("微软雅黑", 12),
+            text_color=TEXT, fg_color="#CBD5E1", hover_color="#94A3B8"
+        )
+        self.export_jpg_btn.pack(side="left", padx=4)
+
+        # 文本框
         self.canvas_out = ctk.CTkTextbox(
-            self.frame_out, fg_color="#F7FEFE", text_color="black",
-            font=("微软雅黑", 14), wrap="word"
+            self.frame_out, fg_color="#F8FAFC", text_color=TEXT,
+            font=("微软雅黑", 14), wrap="word", border_width=0
         )
-        self.canvas_out.grid(row=1, column=0, sticky="nsew")
+        self.canvas_out.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
-        # ----- 拖拽提示区域（放在canvas_in上）-----
+        # ================================================================
+        # 拖拽提示 + 鼠标事件
+        # ================================================================
         self._creat_area()
-
-        # ----- Canvas鼠标事件（区域选择）-----
         self.canvas_in.bind('<ButtonPress-1>', self._on_canvas_mouse_down)
         self.canvas_in.bind('<B1-Motion>', self._on_canvas_mouse_move)
         self.canvas_in.bind('<ButtonRelease-1>', self._on_canvas_mouse_up)
         self.root.bind('<Escape>', self._on_escape_key)
 
-        # ----- 第2行：主要按钮 -----
-        self.button = ctk.CTkButton(
-            self.root, text="导入图片", command=self._Import_file,
-            width=120, font=("微软雅黑", 16),
-            text_color="black", fg_color="#91A5E0"
-        )
-        self.button.grid(row=2, column=2, sticky="w", padx=(10, 0), pady=(10, 5))
-
-        self.recognize_bt = ctk.CTkButton(
-            self.root, text="开始识别", command=self._start_recognize,
-            width=120, font=("微软雅黑", 16),
-            text_color="black", fg_color="#4CAF50"
-        )
-        self.recognize_bt.grid(row=2, column=3, sticky="w", padx=(10, 0), pady=(10, 5))
-
-        self.region_btn = ctk.CTkButton(
-            self.root, text="框选区域", command=self._toggle_region_selection,
-            width=120, font=("微软雅黑", 16),
-            text_color="black", fg_color="#FF9800"
-        )
-        self.region_btn.grid(row=2, column=2, sticky="e", padx=(0, 10), pady=(10, 5))
-
-        # ----- 第3行：辅助按钮 -----
-        self.reset_region_btn = ctk.CTkButton(
-            self.root, text="重置区域", command=self._reset_region,
-            width=120, font=("微软雅黑", 14),
-            text_color="black", fg_color="#BDBDBD"
-        )
-        self.reset_region_btn.grid(row=3, column=2, sticky="w", padx=(10, 0), pady=(0, 10))
-
-        self.export_txt_btn = ctk.CTkButton(
-            self.root, text="导出 TXT", command=self._export_txt,
-            width=90, font=("微软雅黑", 14),
-            text_color="black", fg_color="#81C784"
-        )
-        self.export_txt_btn.grid(row=3, column=3, sticky="w", padx=(10, 0), pady=(0, 10))
-
-        self.export_jpg_btn = ctk.CTkButton(
-            self.root, text="导出对比图", command=self._export_jpg,
-            width=110, font=("微软雅黑", 14),
-            text_color="black", fg_color="#81C784"
-        )
-        self.export_jpg_btn.grid(row=3, column=3, sticky="e", padx=(0, 10), pady=(0, 10))
-
-        # ----- 第4行：预处理选项面板 -----
-        self._create_preprocess_panel()
-
-        # ----- 第5行：历史记录面板 -----
-        self.history_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.history_frame.grid(row=5, column=0, columnspan=5, sticky="nsew",
-                                padx=10, pady=(5, 0))
+        # ================================================================
+        # Row 2: 历史记录面板
+        # ================================================================
+        self.history_frame = ctk.CTkFrame(self.root, fg_color=CARD, corner_radius=10)
+        self.history_frame.grid(row=2, column=0, columnspan=3, sticky="nsew",
+                                padx=15, pady=(8, 0))
         self.history_frame.columnconfigure(0, weight=1)
-        self.history_frame.columnconfigure(1, weight=0)
         self.history_frame.rowconfigure(0, weight=0)
         self.history_frame.rowconfigure(1, weight=1)
 
-        # 标题 + 搜索 + 按钮
-        hist_title = ctk.CTkLabel(
-            self.history_frame, text="📋 历史记录",
-            font=("微软雅黑", 13, "bold"),
-            text_color="black", fg_color="transparent"
-        )
-        hist_title.grid(row=0, column=0, sticky="w", padx=5, pady=(5, 0))
+        hist_header = ctk.CTkFrame(self.history_frame, fg_color="transparent")
+        hist_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+
+        ctk.CTkLabel(hist_header, text="📋 历史记录",
+                     font=("微软雅黑", 14, "bold"), text_color=TEXT
+                     ).pack(side="left")
 
         self.history_search_var = tk.StringVar()
         self.history_search_var.trace_add('write', self._on_history_search)
         self.history_search_entry = ctk.CTkEntry(
-            self.history_frame, placeholder_text="搜索关键词...",
-            textvariable=self.history_search_var, width=200, height=28
+            hist_header, placeholder_text="🔍 搜索关键词...",
+            textvariable=self.history_search_var, width=200, height=30
         )
-        self.history_search_entry.grid(row=0, column=1, sticky="e", padx=5, pady=(5, 0))
-
-        hist_btn_frame = ctk.CTkFrame(self.history_frame, fg_color="transparent")
-        hist_btn_frame.grid(row=0, column=2, sticky="e", padx=5, pady=(5, 0))
-
-        self.export_history_btn = ctk.CTkButton(
-            hist_btn_frame, text="导出", width=50, height=28,
-            font=("微软雅黑", 12), text_color="black", fg_color="#AED581",
-            command=self._export_history
-        )
-        self.export_history_btn.grid(row=0, column=0, padx=2)
+        self.history_search_entry.pack(side="right", padx=5)
 
         self.clear_history_btn = ctk.CTkButton(
-            hist_btn_frame, text="清空", width=50, height=28,
-            font=("微软雅黑", 12), text_color="black", fg_color="#EF9A9A",
-            command=self._clear_history
+            hist_header, text="清空", width=55, height=28,
+            font=("微软雅黑", 11), text_color="white", fg_color="#EF4444",
+            hover_color="#DC2626", command=self._clear_history
         )
-        self.clear_history_btn.grid(row=0, column=1, padx=2)
+        self.clear_history_btn.pack(side="right", padx=3)
+
+        self.export_history_btn = ctk.CTkButton(
+            hist_header, text="导出", width=55, height=28,
+            font=("微软雅黑", 11), text_color=TEXT, fg_color="#CBD5E1",
+            hover_color="#94A3B8", command=self._export_history
+        )
+        self.export_history_btn.pack(side="right", padx=3)
 
         # 历史列表 + 滚动条
         hist_list_frame = ctk.CTkFrame(self.history_frame, fg_color="transparent")
-        hist_list_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
+        hist_list_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         hist_list_frame.columnconfigure(0, weight=1)
         hist_list_frame.rowconfigure(0, weight=1)
 
         self.history_listbox = tk.Listbox(
-            hist_list_frame, bg="#F7FEFE", fg="black",
-            font=("微软雅黑", 11), height=6
+            hist_list_frame, bg="#F8FAFC", fg=TEXT,
+            font=("微软雅黑", 11), height=5,
+            selectbackground=PRIMARY, selectforeground="white",
+            relief="flat", borderwidth=1, highlightthickness=0
         )
         self.history_listbox.grid(row=0, column=0, sticky="nsew")
         self.history_listbox.bind('<<ListboxSelect>>', self._on_select_history)
@@ -285,19 +344,38 @@ class OcrUI:
         self.history_listbox.config(yscrollcommand=self.history_scrollbar.set)
         self.history_scrollbar.config(command=self.history_listbox.yview)
 
-        # 默认占位文字
         self.history_listbox.insert(tk.END, "（暂无历史记录）")
-        self.history_listbox.config(fg="gray")
+        self.history_listbox.config(fg=SUBTEXT)
 
-        # ----- 第6行：状态栏 -----
+        # ================================================================
+        # Row 3: 状态栏 + 进度条
+        # ================================================================
+        status_frame = ctk.CTkFrame(self.root, fg_color=BG)
+        status_frame.grid(row=3, column=0, columnspan=3, sticky="ew",
+                         padx=15, pady=(8, 12))
+        status_frame.columnconfigure(0, weight=1)
+
         self.status_label = ctk.CTkLabel(
-            self.root, text="就绪 — 请导入图片或拖入文件",
-            font=("微软雅黑", 12), text_color="gray", fg_color="#F7FEFE"
+            status_frame, text="就绪 — 请导入图片或拖入文件",
+            font=("微软雅黑", 12), text_color=SUBTEXT
         )
-        self.status_label.grid(row=6, column=0, columnspan=5, sticky="ew",
-                               padx=10, pady=(5, 10))
+        self.status_label.pack(side="left")
 
-        # ----- 图标 & 关闭协议 -----
+        # 进度条区域（初始隐藏）
+        self.progress_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
+        self.progress_bar = ctk.CTkProgressBar(
+            self.progress_frame, width=180, height=10,
+            progress_color=SUCCESS, fg_color="#E2E8F0"
+        )
+        self.progress_bar.pack(side="left", padx=(0, 8))
+        self.progress_bar.set(0)
+        self.progress_label = ctk.CTkLabel(
+            self.progress_frame, text="0%",
+            font=("微软雅黑", 12, "bold"), text_color=SUCCESS
+        )
+        self.progress_label.pack(side="left")
+
+        # ===== 图标 & 关闭协议 =====
         try:
             self.root.iconbitmap(os.path.join(self._assets_dir, 'favicon.ico'))
         except Exception:
@@ -375,7 +453,7 @@ class OcrUI:
 
     def _drag_leave(self, event):
         """拖出时恢复"""
-        self.canvas_in.configure(bg="#C1EBEB")
+        self.canvas_in.configure(bg="#E2E8F0")
 
     def _drop(self, event):
         """拖放文件处理"""
@@ -457,7 +535,7 @@ class OcrUI:
         self.canvas_in.create_image(cw / 2, ch / 2, anchor="center", image=photo)
         self.canvas_in.image = photo
         self.current_photo = photo
-        self.canvas_in.configure(bg="#C1EBEB")
+        self.canvas_in.configure(bg="#E2E8F0")
 
     # ==================================================================
     # 文件列表管理
@@ -473,6 +551,7 @@ class OcrUI:
                 self.listbox.insert(tk.END, f"{fname}  ({size_kb:.0f}KB)")
             except Exception:
                 self.listbox.insert(tk.END, fname)
+        self.file_count_label.configure(text=f"({len(self.file_list)})")
 
     def _on_select_listbox(self, event):
         """文件列表选择事件"""
@@ -492,6 +571,15 @@ class OcrUI:
         except Exception:
             self.original_pil_image = None
         self._reset_region_state()
+
+        # 切换文件时更新预处理图切换按钮状态
+        self.showing_processed = False
+        if path in self._processed_images:
+            self.toggle_preprocess_btn.configure(state="normal", text="🔬 查看预处理",
+                                                 fg_color="#E2E8F0")
+        else:
+            self.toggle_preprocess_btn.configure(state="disabled", text="🔬 查看预处理",
+                                                 fg_color="#E2E8F0")
 
         # 显示图片
         self._display_on_canvas(path)
@@ -533,13 +621,14 @@ class OcrUI:
         """清空文件列表"""
         self.file_list.clear()
         self.listbox.delete(0, tk.END)
+        self.file_count_label.configure(text="(0)")
         self._status("文件列表已清空")
 
     def _clear_canvas(self):
         """清除输入画布、输出文字、文件列表（保留历史记录）"""
         self.canvas_in.delete("all")
         self._show_hints()
-        self.canvas_in.configure(bg="#C1EBEB")
+        self.canvas_in.configure(bg="#E2E8F0")
         self._drag_leave(None)
         self.label.configure(text="未选择图片文件")
         self._reset_region_state()
@@ -550,6 +639,12 @@ class OcrUI:
         self.listbox.delete(0, tk.END)
         self._queue_drained = True
         self._last_results.clear()
+        self._processed_images.clear()
+        self.showing_processed = False
+        self.file_count_label.configure(text="(0)")
+        self.toggle_preprocess_btn.configure(state="disabled", text="🔬 查看预处理",
+                                             fg_color="#E2E8F0")
+        self.progress_frame.pack_forget()
         self._status("已清除，可导入新图片开始识别")
 
     def _reset_region_state(self):
@@ -559,7 +654,8 @@ class OcrUI:
             self.region_selector.clear_selection()
             self.region_selector.deactivate()
         self.selection_active = False
-        self.region_btn.configure(text="框选区域", fg_color="#FF9800")
+        self.showing_processed = False
+        self.region_btn.configure(text="框选区域", fg_color="#F97316")
         self.canvas_in.config(cursor='')
 
     def _reset_region(self):
@@ -569,6 +665,22 @@ class OcrUI:
             self._display_on_canvas(self.original_image_path)
             self._hide_hints()
             self._status("区域已重置 — 将对完整图像进行识别")
+
+    def _toggle_processed_view(self):
+        """切换显示：原图 ←→ 预处理效果图"""
+        if not self.showing_processed:
+            path = self.original_image_path
+            if path and path in self._processed_images:
+                self._display_on_canvas(self._processed_images[path])
+                self.showing_processed = True
+                self.toggle_preprocess_btn.configure(text="查看原图", fg_color="#F97316")
+                self._status("正在查看预处理效果图")
+        else:
+            if self.original_image_path and os.path.exists(self.original_image_path):
+                self._display_on_canvas(self.original_image_path)
+            self.showing_processed = False
+            self.toggle_preprocess_btn.configure(text="🔬 查看预处理", fg_color="#E2E8F0")
+            self._status("正在查看原始图片")
 
     # ==================================================================
     # 区域选择（鼠标框选）
@@ -609,7 +721,7 @@ class OcrUI:
             self.selection_active = False
             if self.region_selector:
                 self.region_selector.deactivate()
-            self.region_btn.configure(text="框选区域", fg_color="#FF9800")
+            self.region_btn.configure(text="框选区域", fg_color="#F97316")
             self.canvas_in.config(cursor='')
 
     def _on_canvas_mouse_down(self, event):
@@ -634,7 +746,7 @@ class OcrUI:
                 self.region_selector.clear_selection()
                 self.region_selector.deactivate()
             self.selection_active = False
-            self.region_btn.configure(text="框选区域", fg_color="#FF9800")
+            self.region_btn.configure(text="框选区域", fg_color="#F97316")
             self.canvas_in.config(cursor='')
             self._status("框选已取消")
 
@@ -673,6 +785,11 @@ class OcrUI:
         self._status(f"⏳ 识别中（预处理: {steps_desc}），请稍候...")
         self.canvas_out.delete("0.0", "end")
 
+        # 显示进度条
+        self.progress_bar.set(0)
+        self.progress_label.configure(text="0%", text_color="#22C55E")
+        self.progress_frame.pack(side="right")
+
         # 追踪批量识别进度
         self._pending_tasks = 0
         self._completed_tasks = 0
@@ -685,7 +802,7 @@ class OcrUI:
                 img_path = self.original_image_path or ""
                 self.engine.submit_image(
                     cropped,
-                    lambda tid, txt, ok: self._on_single_result(tid, txt, ok, img_path),
+                    lambda tid, txt, ok, proc: self._on_single_result(tid, txt, ok, img_path, proc),
                     enabled_steps=steps
                 )
                 return
@@ -695,29 +812,31 @@ class OcrUI:
             self._pending_tasks = len(self.file_list)
             for f in self.file_list:
                 def make_callback(img_path):
-                    return lambda tid, txt, ok: self._on_single_result(tid, txt, ok, img_path)
+                    return lambda tid, txt, ok, proc: self._on_single_result(tid, txt, ok, img_path, proc)
                 self.engine.submit(f, make_callback(f), enabled_steps=steps)
         else:
             self._pending_tasks = 1
             img_path = self.original_image_path or ""
             self.engine.submit_image(
                 self.original_pil_image,
-                lambda tid, txt, ok: self._on_single_result(tid, txt, ok, img_path),
+                lambda tid, txt, ok, proc: self._on_single_result(tid, txt, ok, img_path, proc),
                 enabled_steps=steps
             )
 
         # 提交完毕 → 标记队列已排空，保留列表供浏览
         self._queue_drained = True
-        self.original_pil_image = None
-        self.original_image_path = None
 
-    def _on_single_result(self, task_id, text, success, image_path=""):
+    def _on_single_result(self, task_id, text, success, image_path="", processed_image=None):
         """单张识别完成回调 — 立即追加到输出画布"""
         self._completed_tasks += 1
 
         def update_ui():
             if not success:
                 return
+
+            # 存储预处理效果图
+            if processed_image is not None and image_path:
+                self._processed_images[image_path] = processed_image
 
             # 第一张结果：清空之前内容
             if self._completed_tasks == 1:
@@ -739,12 +858,33 @@ class OcrUI:
             # 每次追加记录后自动保存到 history/ 目录
             self._save_history()
 
+            # 更新切换按钮状态
+            if image_path and image_path in self._processed_images:
+                self.toggle_preprocess_btn.configure(state="normal")
+            else:
+                self.toggle_preprocess_btn.configure(state="disabled")
+
             # 进度反馈
+            if self._pending_tasks > 0:
+                ratio = self._completed_tasks / self._pending_tasks
+                self.progress_bar.set(ratio)
+                pct = int(ratio * 100)
+                self.progress_label.configure(text=f"{pct}%")
+                if self._completed_tasks >= self._pending_tasks:
+                    self.progress_bar.configure(progress_color="#22C55E")
+                    self.progress_label.configure(text_color="#22C55E")
+                    # 完成后1.5秒隐藏进度条
+                    self.root.after(1500, self.progress_frame.pack_forget)
+                else:
+                    self.progress_bar.configure(progress_color="#3B82F6")
+                    self.progress_label.configure(text_color="#3B82F6")
+
             if self._completed_tasks >= self._pending_tasks:
                 self.recognize_bt.configure(state="normal")
                 self._status(f"✅ 识别完成 — 共 {self._completed_tasks} 张")
             else:
-                self._status(f"⏳ 识别中... {self._completed_tasks}/{self._pending_tasks}")
+                pct = int(self._completed_tasks / self._pending_tasks * 100) if self._pending_tasks > 0 else 0
+                self._status(f"⏳ 识别中... {self._completed_tasks}/{self._pending_tasks} ({pct}%)")
             self._refresh_history_listbox()
 
         self.root.after(0, update_ui)
@@ -792,7 +932,9 @@ class OcrUI:
         for path in self.file_list:
             text = self._last_results.get(path, "")
             fname = os.path.splitext(os.path.basename(path))[0] + ".txt"
-            ResultParser.export_to_file(text, os.path.join(out_dir, fname))
+            header = f"图片来源: {path}\n{'=' * 50}\n\n"
+            content = header + (text or "(无识别结果)")
+            ResultParser.export_to_file(content, os.path.join(out_dir, fname))
             count += 1
         self._status(f"✅ 已导出 {count} 个 TXT 到 {out_dir}/")
 
@@ -912,70 +1054,64 @@ class OcrUI:
         ('clahe',         'CLAHE增强'),
     ]
 
-    def _create_preprocess_panel(self):
-        """创建可展开的预处理选择面板"""
-        self.preprocess_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        self.preprocess_frame.grid(row=4, column=0, columnspan=5, sticky="ew",
-                                   padx=10, pady=(5, 0))
+    def _create_preprocess_panel(self, parent):
+        """创建预处理选项面板（嵌入侧边栏卡片）"""
+        TEXT = "#1E293B"
+        PRIMARY = "#3B82F6"
 
-        # 展开/折叠按钮
-        self.preprocess_expanded = tk.BooleanVar(value=False)
-        self.preprocess_toggle_btn = ctk.CTkButton(
-            self.preprocess_frame, text="🔧 预处理选项 ▸",
-            width=160, height=28,
-            font=("微软雅黑", 13), text_color="black", fg_color="#E0E0E0",
-            command=self._toggle_preprocess_panel
-        )
-        self.preprocess_toggle_btn.grid(row=0, column=0, sticky="w")
+        self.preprocess_frame = ctk.CTkFrame(parent, fg_color="#FFFFFF", corner_radius=10)
+        self.preprocess_frame.grid(row=1, column=0, sticky="nsew")
+        self.preprocess_frame.columnconfigure(0, weight=1)
+        self.preprocess_frame.rowconfigure(0, weight=0)
+        self.preprocess_frame.rowconfigure(1, weight=1)
 
-        # 全选 / 全不选快捷按钮
+        # 标题 + 快捷按钮
+        pp_header = ctk.CTkFrame(self.preprocess_frame, fg_color="transparent")
+        pp_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+
+        ctk.CTkLabel(pp_header, text="🔧 预处理选项",
+                     font=("微软雅黑", 14, "bold"), text_color=TEXT
+                     ).pack(side="left")
+
         self.preprocess_all_btn = ctk.CTkButton(
-            self.preprocess_frame, text="全选", width=60, height=24,
-            font=("微软雅黑", 11), text_color="black", fg_color="#BBDEFB",
-            command=self._preprocess_select_all
+            pp_header, text="全选", width=50, height=24,
+            font=("微软雅黑", 11), text_color=TEXT, fg_color="#DBEAFE",
+            hover_color="#BFDBFE", command=self._preprocess_select_all
         )
+        self.preprocess_all_btn.pack(side="right", padx=3)
 
         self.preprocess_none_btn = ctk.CTkButton(
-            self.preprocess_frame, text="全不选", width=60, height=24,
-            font=("微软雅黑", 11), text_color="black", fg_color="#FFCDD2",
-            command=self._preprocess_select_none
+            pp_header, text="全不选", width=50, height=24,
+            font=("微软雅黑", 11), text_color=TEXT, fg_color="#FEE2E2",
+            hover_color="#FECACA", command=self._preprocess_select_none
         )
+        self.preprocess_none_btn.pack(side="right", padx=3)
 
-        # 复选框容器（初始隐藏）
+        # 复选框网格（4列 × 2行）
         self.checkbox_frame = ctk.CTkFrame(self.preprocess_frame, fg_color="transparent")
-        self.checkbox_frame.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(5, 0))
-        self.checkbox_frame.grid_remove()
+        self.checkbox_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+        for c in range(4):
+            self.checkbox_frame.columnconfigure(c, weight=1)
 
         self.step_vars = {}
         self.step_widgets = {}
-        self._updating_steps = False  # 防递归标志
+        self._updating_steps = False
         for i, (key, label) in enumerate(self.PREPROCESS_STEPS):
-            var = tk.BooleanVar(value=False)  # 默认不勾选
+            var = tk.BooleanVar(value=False)
             cb = ctk.CTkCheckBox(
                 self.checkbox_frame, text=label, variable=var,
-                font=("微软雅黑", 12), text_color="black",
-                fg_color="#5EDEDE", hover_color="#4DB6AC",
+                font=("微软雅黑", 12), text_color=TEXT,
+                fg_color=PRIMARY, hover_color="#2563EB",
+                checkmark_color="white", border_color="#CBD5E1"
             )
-            cb.grid(row=i // 4, column=i % 4, sticky="w", padx=10, pady=3)
+            cb.grid(row=i // 4, column=i % 4, sticky="w", padx=5, pady=4)
             self.step_vars[key] = var
             self.step_widgets[key] = cb
-            # 每次勾选/取消时触发联动逻辑
             var.trace_add('write', lambda *_, k=key: self._on_step_toggled(k))
 
     def _toggle_preprocess_panel(self):
-        """展开/折叠预处理面板"""
-        if self.preprocess_expanded.get():
-            self.preprocess_expanded.set(False)
-            self.checkbox_frame.grid_remove()
-            self.preprocess_all_btn.grid_remove()
-            self.preprocess_none_btn.grid_remove()
-            self.preprocess_toggle_btn.configure(text="🔧 预处理选项 ▸", fg_color="#E0E0E0")
-        else:
-            self.preprocess_expanded.set(True)
-            self.checkbox_frame.grid()
-            self.preprocess_all_btn.grid(row=0, column=1, sticky="w", padx=5)
-            self.preprocess_none_btn.grid(row=0, column=2, sticky="w", padx=5)
-            self.preprocess_toggle_btn.configure(text="🔧 预处理选项 ▾", fg_color="#FFF9C4")
+        """预处理面板已默认展开，此方法保留以兼容旧代码"""
+        pass
 
     def _preprocess_select_all(self):
         """全选所有预处理步骤"""
