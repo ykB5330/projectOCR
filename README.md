@@ -48,11 +48,31 @@ pip install -r requirements.txt
 
 ---
 
-## 运行
+## 使用方式
+
+### 方式一：源码运行（开发者）
 
 ```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 运行
 python src/main.py
 ```
+
+> 首次运行 PaddleOCR 会自动下载模型文件（约 50MB），请保持网络畅通。
+
+### 方式二：打包为独立程序（普通用户）
+
+```bash
+# 双击运行，自动安装依赖并打包
+build.bat
+```
+
+打包完成后，`dist/OCR文字识别工具/` 文件夹即为独立程序：
+- 双击 `OCR文字识别工具.exe` 启动
+- 无需安装 Python 或任何依赖
+- 可将整个文件夹复制到其他 Windows 电脑直接使用
 
 ---
 
@@ -82,6 +102,8 @@ projectOCR/
 ├── examples/                    # 示例图片
 ├── history/                     # 历史记录持久化（运行时生成）
 ├── requirements.txt
+├── app.spec                     # PyInstaller 打包配置
+├── build.bat                    # 一键打包脚本
 └── README.md
 ```
 
