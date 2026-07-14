@@ -33,46 +33,15 @@
 
 ---
 
-## 安装
+## 如何使用
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/ykB5330/projectOCR.git
-cd projectOCR
+**第一步** — 下载本项目并解压（或 `git clone`）
 
-# 2. 安装依赖
-pip install -r requirements.txt
-```
+**第二步** — 双击 `build.bat`，等待自动完成（首次约 5-15 分钟）
 
-> **注意**：首次运行 PaddleOCR 会自动下载模型文件（约 50MB），请保持网络畅通。
+**第三步** — 进入 `dist/OCR_text_recognition/`，双击 `OCR_text_recognition.exe`
 
----
-
-## 使用方式
-
-### 方式一：源码运行（开发者）
-
-```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 运行
-python src/main.py
-```
-
-> 首次运行 PaddleOCR 会自动下载模型文件（约 50MB），请保持网络畅通。
-
-### 方式二：打包为独立程序（普通用户）
-
-```bash
-# 双击运行，自动安装依赖并打包
-build.bat
-```
-
-打包完成后，`dist/OCR文字识别工具/` 文件夹即为独立程序：
-- 双击 `OCR文字识别工具.exe` 启动
-- 无需安装 Python 或任何依赖
-- 可将整个文件夹复制到其他 Windows 电脑直接使用
+> 如果你有 Python 3.9+，也可以直接 `pip install -r requirements.txt` 后 `python src/main.py` 运行，跳过打包步骤。
 
 ---
 
@@ -82,12 +51,12 @@ build.bat
 projectOCR/
 ├── src/
 │   ├── main.py                  # 入口
-│   ├── ui.py                    # GUI 界面（Tkinter + CustomTkinter）
-│   ├── ocr_engine.py            # OCR 引擎（PaddleOCR + 任务队列）
+│   ├── ui.py                    # GUI 界面
+│   ├── ocr_engine.py            # OCR 引擎 + 任务队列
 │   ├── image_utils.py           # 预处理流水线
 │   ├── region_selector.py       # 鼠标框选 ROI
 │   ├── history_manager.py       # BST 历史记录管理
-│   ├── result_parser.py         # 结果文本清洗与导出
+│   ├── result_parser.py         # 文本清洗与导出
 │   ├── algorithms/              # 8 种手动实现的预处理算法
 │   │   ├── grayscale.py         #   加权灰度化
 │   │   ├── binarize.py          #   自适应二值化
@@ -97,11 +66,11 @@ projectOCR/
 │   │   ├── USM.py               #   USM 锐化
 │   │   ├── gamma.py             #   伽马校正
 │   │   └── clahe.py             #   CLAHE 增强
-│   └── asserts/                 # 图标资源
+│   └── assets/                  # 图标资源
 ├── tests/                       # 测试
 ├── examples/                    # 示例图片
 ├── history/                     # 历史记录持久化（运行时生成）
-├── requirements.txt
+├── requirements.txt             # Python 依赖
 ├── app.spec                     # PyInstaller 打包配置
 ├── build.bat                    # 一键打包脚本
 └── README.md

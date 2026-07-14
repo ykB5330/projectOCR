@@ -1,48 +1,51 @@
 @echo off
-chcp 65001 >nul
-title OCR文字识别工具 — 一键打包
+setlocal enabledelayedexpansion
+title OCR Tool - Build
 
 echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║   OCR文字识别工具 — 一键打包脚本    ║
-echo  ╚══════════════════════════════════════╝
+echo  ============================================
+echo    OCR Text Recognition Tool - Build Script
+echo  ============================================
 echo.
-echo  [1/3] 安装依赖...
+
+echo  [1/3] Installing dependencies...
 pip install -r requirements.txt -q
-if %errorlevel% neq 0 (
-    echo  [错误] 依赖安装失败，请检查网络连接
+if errorlevel 1 (
+    echo  [ERROR] Failed to install dependencies
     pause
     exit /b 1
 )
+echo         Done.
 
-echo  [2/3] 安装 PyInstaller...
+echo  [2/3] Installing PyInstaller...
 pip install pyinstaller -q
-if %errorlevel% neq 0 (
-    echo  [错误] PyInstaller 安装失败
+if errorlevel 1 (
+    echo  [ERROR] Failed to install PyInstaller
     pause
     exit /b 1
 )
+echo         Done.
 
-echo  [3/3] 开始打包（预计 5-15 分钟，请耐心等待）...
+echo  [3/3] Building (this may take 5-15 minutes)...
 pyinstaller app.spec --noconfirm
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo.
-    echo  [错误] 打包失败，请检查上方错误信息
+    echo  [ERROR] Build failed, see above for details
     pause
     exit /b 1
 )
 
 echo.
-echo  ╔══════════════════════════════════════╗
-echo  ║   ✅ 打包完成！                      ║
-echo  ║                                      ║
-echo  ║   输出目录: dist\OCR文字识别工具\     ║
-echo  ║   启动文件: OCR文字识别工具.exe       ║
-echo  ╚══════════════════════════════════════╝
+echo  ============================================
+echo    Build Complete!
 echo.
-echo  将整个 "dist\OCR文字识别工具" 文件夹复制给别人即可使用
-echo  无需安装 Python 或任何依赖
+echo    Output: dist\OCR_text_recognition\
+echo    Launch: OCR_text_recognition.exe
+echo  ============================================
+echo.
+echo  Copy the entire "dist\OCR_text_recognition" folder
+echo  to any Windows PC. No Python required.
 echo.
 
-start "" "dist\OCR文字识别工具"
+start "" "dist\OCR_text_recognition"
 pause
