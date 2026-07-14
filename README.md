@@ -77,8 +77,6 @@ projectOCR/
 ├── examples/                    # 示例图片
 ├── history/                     # 历史记录持久化（运行时生成）
 ├── requirements.txt             # Python 依赖
-├── app.spec                     # PyInstaller 打包配置
-├── build.bat                    # 一键打包脚本
 └── README.md
 ```
 

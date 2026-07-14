@@ -724,6 +724,7 @@ class OcrUI:
                     if cropped.size != self.original_pil_image.size:
                         self.current_region = self.region_selector.get_roi_coordinates()
                         self._display_on_canvas(cropped)
+                        self.region_selector.clear_selection()
                         w, h = self.current_region[2] - self.current_region[0], \
                                self.current_region[3] - self.current_region[1]
                         self._status(f"✅ 已选取区域 ({w}×{h}px) — 仅对该区域识别")
@@ -765,14 +766,47 @@ class OcrUI:
             self._status("框选已取消")
 
     def _get_cropped_image(self):
-        """获取裁剪后的PIL图像（有选区时返回裁剪，无选区返回原图）"""
+        """获取裁剪后的PIL图像（有选区时返回裁剪，无选区返回原图）
+
+        直接使用 self.current_region 坐标裁剪，不依赖 RegionSelector 内部状态
+        （因为 _toggle_region_selection 确认选区后会 clear_selection，
+        导致 RegionSelector 内部坐标丢失，所以必须用 self.current_region）。
+        """
         if self.original_pil_image is None:
             return None
-        if self.current_region is None or self.region_selector is None:
+        if self.current_region is None:
             return self.original_pil_image
-        cw = self.canvas_in.winfo_width()
-        ch = self.canvas_in.winfo_height()
-        return self.region_selector.crop_from_image(self.original_pil_image, cw, ch)
+
+        cw = self.canvas_in.winfo_width() or 550
+        ch = self.canvas_in.winfo_height() or 450
+        img_w, img_h = self.original_pil_image.size
+
+        # 坐标映射：Canvas坐标 → 原始图像坐标（与 RegionSelector 逻辑一致）
+        scale = min(cw / img_w, ch / img_h)
+        offset_x = (cw - img_w * scale) / 2
+        offset_y = (ch - img_h * scale) / 2
+
+        x1, y1, x2, y2 = self.current_region
+
+        def _to_image(cx, cy):
+            """Canvas坐标 → 图像像素坐标"""
+            ix = (cx - offset_x) / scale if scale > 0 else cx
+            iy = (cy - offset_y) / scale if scale > 0 else cy
+            return (
+                max(0, min(img_w - 1, int(round(ix)))),
+                max(0, min(img_h - 1, int(round(iy)))),
+            )
+
+        img_x1, img_y1 = _to_image(x1, y1)
+        img_x2, img_y2 = _to_image(x2, y2)
+
+        crop_x1, crop_x2 = min(img_x1, img_x2), max(img_x1, img_x2)
+        crop_y1, crop_y2 = min(img_y1, img_y2), max(img_y1, img_y2)
+
+        if crop_x2 - crop_x1 < 5 or crop_y2 - crop_y1 < 5:
+            return self.original_pil_image
+
+        return self.original_pil_image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
 
     # ==================================================================
     # OCR 识别
@@ -1028,6 +1062,7 @@ class OcrUI:
             self.history_manager.clear_all()
             self._history_id_map = {}
             self._refresh_history_listbox()
+            self._save_history()  # 持久化空状态，防止重启后旧记录复活
             self._status("历史记录已清空")
 
     def _export_history(self):

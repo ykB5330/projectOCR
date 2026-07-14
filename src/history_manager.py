@@ -195,8 +195,20 @@ class BSTree:
         keyword_lower = keyword.lower()
 
         def collect(node: BSTNode):
-            if keyword_lower in node.record.ocr_text.lower():
-                results.append(node.record)
+            r = node.record
+            # OCR文本
+            if keyword_lower in r.ocr_text.lower():
+                results.append(r)
+                return
+            # 文件名
+            fname = os.path.basename(r.image_path).lower() if r.image_path else ''
+            if keyword_lower in fname:
+                results.append(r)
+                return
+            # 时间显示字符串 (与列表显示格式一致: MM-DD HH:MM)
+            time_str = time.strftime('%m-%d %H:%M', time.localtime(r.timestamp))
+            if keyword_lower in time_str:
+                results.append(r)
 
         self._traverse_collect(self.root, collect)
         return results

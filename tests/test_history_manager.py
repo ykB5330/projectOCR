@@ -60,6 +60,28 @@ def test_history_manager():
     assert mgr.get_record_count() == 0
 
 
+def test_search_by_filename():
+    """搜索文件名"""
+    tree = BSTree()
+    tree.insert(1, HistoryRecord("1", "/home/user/screenshot_2024.png", "some text", 1, 100))
+    tree.insert(2, HistoryRecord("2", "/home/user/photo.jpg", "unrelated", 2, 200))
+    assert len(tree.search_by_keyword("screenshot")) == 1
+    assert tree.search_by_keyword("screenshot")[0].record_id == "1"
+    assert len(tree.search_by_keyword("photo")) == 1
+    assert len(tree.search_by_keyword("nonexistent")) == 0
+
+
+def test_search_by_time_string():
+    """搜索时间字符串（如 07-14、07-14 15:30）"""
+    tree = BSTree()
+    # 使用本地时间构造时间戳，确保 strftime 输出与预期一致
+    ts = time.mktime((2024, 7, 14, 15, 30, 0, 0, 0, -1))
+    tree.insert(ts, HistoryRecord("1", "/a.png", "text", ts, 100))
+    time_str = time.strftime('%m-%d %H:%M', time.localtime(ts))
+    assert len(tree.search_by_keyword(time_str)) == 1
+    assert len(tree.search_by_keyword("07-15")) == 0
+
+
 def test_json_roundtrip():
     mgr1 = HistoryManager()
     mgr1.add_record("/img.png", "测试", file_size=100)
@@ -74,4 +96,5 @@ if __name__ == "__main__":
     test_insert_and_size(); test_inorder_sorted(); test_reverse_inorder()
     test_search_by_keyword(); test_delete_and_clear()
     test_history_manager(); test_json_roundtrip()
+    test_search_by_filename(); test_search_by_time_string()
     print("✅ BST历史记录管理器测试全部通过")
