@@ -39,7 +39,7 @@ except ImportError:
 
 a = Analysis(
     ['src/main.py'],
-    pathex=[str(project_root)],
+    pathex=[str(project_root), str(project_root / 'src')],
     binaries=paddle_binaries + tkdnd_binaries,
     datas=[
         # 资源文件
@@ -53,7 +53,7 @@ a = Analysis(
         'paddleocr', 'paddle', 'paddle.fluid', 'paddle.tensor',
         # 图像处理
         'PIL', 'PIL.Image', 'PIL.ImageTk', 'PIL.ImageFilter',
-        'numpy', 'numpy.core._methods',
+        'numpy',
         'skimage', 'skimage.exposure',
         # 标准库（有些可能被 tree-shaking 误删）
         'queue', 'threading', 'json', 'uuid', 'tempfile', 're',
