@@ -108,7 +108,7 @@ def get_skew_angle(accumulator, thetas, rhos):
     if abs(rotation_angle) > 45.0:
         return 0.0
 
-    return rotation_angle
+    return -rotation_angle
 
 
 def rotate_image(image_pil, angle):

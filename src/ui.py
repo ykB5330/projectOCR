@@ -50,6 +50,7 @@ class OcrUI:
         self._queue_drained = True   # 当前无待识别图片
         self._last_results = {}      # {image_path: ocr_text} 导出用
         self._processed_images = {}  # {image_path: PIL.Image} 预处理效果图
+        self._progress_tick_id = None   # 进度条计时器 ID
 
         # ===== 历史记录 =====
         self.history_manager = HistoryManager()
@@ -104,12 +105,9 @@ class OcrUI:
         title_frame.grid(row=0, column=0, columnspan=3, sticky="ew",
                          padx=15, pady=(15, 5))
 
-        ctk.CTkLabel(title_frame, text="🔍 文字识别工具",
+        ctk.CTkLabel(title_frame, text="本地OCR文字识别工具",
                      font=("微软雅黑", 22, "bold"), text_color=TEXT
                      ).pack(side="left")
-        ctk.CTkLabel(title_frame, text="v2.0",
-                     font=("微软雅黑", 11), text_color=SUBTEXT
-                     ).pack(side="left", padx=8)
 
         self.label = ctk.CTkLabel(title_frame, text="未选择图片文件",
                                   font=("微软雅黑", 13), text_color=SUBTEXT)
@@ -398,7 +396,7 @@ class OcrUI:
         """创建拖拽提示区域"""
         icon = Image.open(os.path.join(self._assets_dir, 'drop_hint.png')).resize(
             (80, 80), Image.Resampling.LANCZOS).convert("RGBA")
-        bg = Image.new("RGBA", icon.size, (193, 235, 235, 255))
+        bg = Image.new("RGBA", icon.size, (226, 232, 240, 255))
         self.icon_img_tk = ImageTk.PhotoImage(Image.alpha_composite(bg, icon))
         self.canvas_in.create_image(275, 160, image=self.icon_img_tk,
                                     anchor="center", tags="icon")
@@ -433,12 +431,22 @@ class OcrUI:
 
     def _hide_hints(self):
         """隐藏拖拽提示"""
+        self.canvas_in.itemconfigure("icon", state="hidden")
         for lbl in [self._hint_label1, self._hint_label2, self._hint_label3]:
             if lbl:
                 lbl.place_forget()
 
     def _show_hints(self):
         """显示拖拽提示"""
+        # 确保图标在canvas上
+        if self.icon_img_tk:
+            icons = self.canvas_in.find_withtag("icon")
+            if not icons:
+                cw = self.canvas_in.winfo_width() or 550
+                self.canvas_in.create_image(cw / 2, 160, image=self.icon_img_tk,
+                                            anchor="center", tags="icon")
+            else:
+                self.canvas_in.itemconfigure("icon", state="normal")
         if self._hint_label1:
             self._hint_label1.place(relx=0.5, rely=0.55, anchor="center")
         if self._hint_label2:
@@ -531,8 +539,9 @@ class OcrUI:
         img_resized.thumbnail((cw - 20, ch - 20), Image.Resampling.LANCZOS)
 
         photo = ImageTk.PhotoImage(img_resized)
-        self.canvas_in.delete("all")
-        self.canvas_in.create_image(cw / 2, ch / 2, anchor="center", image=photo)
+        self.canvas_in.delete("displayed")
+        self.canvas_in.create_image(cw / 2, ch / 2, anchor="center",
+                                    image=photo, tags="displayed")
         self.canvas_in.image = photo
         self.current_photo = photo
         self.canvas_in.configure(bg="#E2E8F0")
@@ -626,7 +635,7 @@ class OcrUI:
 
     def _clear_canvas(self):
         """清除输入画布、输出文字、文件列表（保留历史记录）"""
-        self.canvas_in.delete("all")
+        self.canvas_in.delete("displayed")
         self._show_hints()
         self.canvas_in.configure(bg="#E2E8F0")
         self._drag_leave(None)
@@ -644,6 +653,11 @@ class OcrUI:
         self.file_count_label.configure(text="(0)")
         self.toggle_preprocess_btn.configure(state="disabled", text="🔬 查看预处理",
                                              fg_color="#E2E8F0")
+        if self._progress_tick_id is not None:
+            self.root.after_cancel(self._progress_tick_id)
+            self._progress_tick_id = None
+        if hasattr(self, '_current_image_start'):
+            del self._current_image_start
         self.progress_frame.pack_forget()
         self._status("已清除，可导入新图片开始识别")
 
@@ -785,10 +799,15 @@ class OcrUI:
         self._status(f"⏳ 识别中（预处理: {steps_desc}），请稍候...")
         self.canvas_out.delete("0.0", "end")
 
-        # 显示进度条
+        # 显示进度条 + 启动 10 秒计时
+        self._current_image_start = time.time()
         self.progress_bar.set(0)
-        self.progress_label.configure(text="0%", text_color="#22C55E")
+        self.progress_bar.configure(progress_color="#3B82F6")
+        self.progress_label.configure(text="0%", text_color="#3B82F6")
         self.progress_frame.pack(side="right")
+        if self._progress_tick_id is not None:
+            self.root.after_cancel(self._progress_tick_id)
+        self._progress_tick_id = self.root.after(100, self._tick_progress)
 
         # 追踪批量识别进度
         self._pending_tasks = 0
@@ -831,6 +850,15 @@ class OcrUI:
         self._completed_tasks += 1
 
         def update_ui():
+            # ===== 进度 / 状态更新 =====
+            if self._completed_tasks >= self._pending_tasks:
+                self.recognize_bt.configure(state="normal")
+                self._status(f"✅ 识别完成 — 共 {self._completed_tasks} 张")
+            else:
+                self._current_image_start = time.time()  # 下一张图重新计时
+                pct = int(self.progress_bar.get() * 100)
+                self._status(f"⏳ 识别中... {self._completed_tasks}/{self._pending_tasks} ({pct}%)")
+
             if not success:
                 return
 
@@ -855,7 +883,6 @@ class OcrUI:
             )
             # 记录映射：导出时按图片分别保存
             self._last_results[image_path] = text
-            # 每次追加记录后自动保存到 history/ 目录
             self._save_history()
 
             # 更新切换按钮状态
@@ -864,27 +891,6 @@ class OcrUI:
             else:
                 self.toggle_preprocess_btn.configure(state="disabled")
 
-            # 进度反馈
-            if self._pending_tasks > 0:
-                ratio = self._completed_tasks / self._pending_tasks
-                self.progress_bar.set(ratio)
-                pct = int(ratio * 100)
-                self.progress_label.configure(text=f"{pct}%")
-                if self._completed_tasks >= self._pending_tasks:
-                    self.progress_bar.configure(progress_color="#22C55E")
-                    self.progress_label.configure(text_color="#22C55E")
-                    # 完成后1.5秒隐藏进度条
-                    self.root.after(1500, self.progress_frame.pack_forget)
-                else:
-                    self.progress_bar.configure(progress_color="#3B82F6")
-                    self.progress_label.configure(text_color="#3B82F6")
-
-            if self._completed_tasks >= self._pending_tasks:
-                self.recognize_bt.configure(state="normal")
-                self._status(f"✅ 识别完成 — 共 {self._completed_tasks} 张")
-            else:
-                pct = int(self._completed_tasks / self._pending_tasks * 100) if self._pending_tasks > 0 else 0
-                self._status(f"⏳ 识别中... {self._completed_tasks}/{self._pending_tasks} ({pct}%)")
             self._refresh_history_listbox()
 
         self.root.after(0, update_ui)
@@ -1208,6 +1214,47 @@ class OcrUI:
     def _status(self, msg: str):
         """更新状态栏消息"""
         self.status_label.configure(text=msg)
+
+    def _tick_progress(self):
+        """10秒计划进度 — 多图按比例分配，提前完成加速冲线，超时卡在份额的95%"""
+        if self._progress_tick_id is None:
+            return
+        if not hasattr(self, '_current_image_start'):
+            return
+
+        total = max(self._pending_tasks, 1)
+        share = 1.0 / total  # 每张图分得的进度条份额
+
+        if self._completed_tasks >= self._pending_tasks:
+            # 全部完成 → 加速冲到 100%
+            current = self.progress_bar.get()
+            target = min(current + 0.15, 1.0)
+            self.progress_bar.set(target)
+            pct = int(target * 100)
+            self.progress_label.configure(text=f"{pct}%")
+            if target >= 1.0:
+                self.progress_bar.configure(progress_color="#22C55E")
+                self.progress_label.configure(text_color="#22C55E")
+                self.progress_bar.set(1.0)
+                self.progress_label.configure(text="100%")
+                self._progress_tick_id = None
+                self.root.after(1500, self.progress_frame.pack_forget)
+                return
+            self._progress_tick_id = self.root.after(50, self._tick_progress)
+            return
+
+        # 当前图片进度（10秒计划，上限 95%）
+        elapsed = time.time() - self._current_image_start
+        image_progress = min(elapsed / 10.0, 0.95) * share
+
+        # 总进度 = 已完成图片的份额 + 当前图片的进度
+        target = self._completed_tasks * share + image_progress
+        target = min(target, 1.0)
+
+        self.progress_bar.set(target)
+        pct = int(target * 100)
+        self.progress_label.configure(text=f"{pct}%")
+        self._progress_tick_id = self.root.after(100, self._tick_progress)
 
     # ==================================================================
     # 关闭
