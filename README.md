@@ -33,15 +33,21 @@
 
 ---
 
-## 如何使用
+## 快速开始
 
-**第一步** — 下载本项目并解压（或 `git clone`）
+```bash
+# 1. 克隆仓库
+git clone https://github.com/ykB5330/projectOCR.git
+cd projectOCR
 
-**第二步** — 双击 `build.bat`，等待自动完成（首次约 5-15 分钟）
+# 2. 安装依赖
+pip install -r requirements.txt
 
-**第三步** — 进入 `dist/OCR_text_recognition/`，双击 `OCR_text_recognition.exe`
+# 3. 运行
+python src/main.py
+```
 
-> 如果你有 Python 3.9+，也可以直接 `pip install -r requirements.txt` 后 `python src/main.py` 运行，跳过打包步骤。
+首次运行 PaddleOCR 会自动下载模型文件（约 50MB），请保持网络畅通。
 
 ---
 
